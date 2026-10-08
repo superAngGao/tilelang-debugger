@@ -1,0 +1,29 @@
+{
+  "source": "kernel.py",
+  "points": [
+    {
+      "id": "gelu_0",
+      "line": 87,
+      "when": "after",
+      "buffer": "x_reg",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "gelu_1",
+      "line": 88,
+      "when": "after",
+      "buffer": "y_reg",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "source": "kernel.py",
+  "points": [
+    {
+      "id": "gemm_0",
+      "line": 116,
+      "when": "after",
+      "buffer": "c_local",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": [
+        {
+          "line": 113,
+          "iteration": 2
+        }
+      ]
+    }
+  ]
+}

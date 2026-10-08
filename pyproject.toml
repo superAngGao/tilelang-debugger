@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tilelang-debugger"
+version = "0.1.0"
+description = "Source-selected TileLang capture on H200"
+requires-python = ">=3.10"
+
+[project.scripts]
+tilelang-debugger = "tilelang_debugger.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tilelang_debugger = ["contracts.json"]

@@ -1,0 +1,29 @@
+{
+  "source": "kernel.py",
+  "points": [
+    {
+      "id": "sum_0",
+      "line": 49,
+      "when": "before",
+      "buffer": "x_f32",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "sum_1",
+      "line": 49,
+      "when": "after",
+      "buffer": "acc",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    }
+  ]
+}

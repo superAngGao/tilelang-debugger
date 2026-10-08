@@ -1,0 +1,273 @@
+{
+  "gelu": {
+    "source_sha256": "d3b670c87e0dd7c9a34226de65c48b361790586c881a367c925a42e3f1701c9d",
+    "driver_sha256": [
+      "5ed1392d0fbcc58901cef6f882f6cfad55ddebfe08a2a143d3f3894770c9a0a0"
+    ],
+    "allow_auto_cta_change": true,
+    "cta_threads": 128,
+    "grid": [
+      2,
+      1,
+      1
+    ],
+    "points": [
+      {
+        "line": 87,
+        "when": "after",
+        "buffer": "x_reg",
+        "shape": [
+          2048
+        ],
+        "dtype": "bfloat16",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "bx",
+          "0",
+          "0"
+        ],
+        "loop_extents": [],
+        "fence_regs": 0,
+        "layout_sha256": [
+          "0acdc600ac35a9be07223e6d52ea95d421a073790f1b362e8e66588bc2890773"
+        ]
+      },
+      {
+        "line": 88,
+        "when": "after",
+        "buffer": "y_reg",
+        "shape": [
+          2048
+        ],
+        "dtype": "bfloat16",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "bx",
+          "0",
+          "0"
+        ],
+        "loop_extents": [],
+        "fence_regs": 0,
+        "layout_sha256": [
+          "0acdc600ac35a9be07223e6d52ea95d421a073790f1b362e8e66588bc2890773"
+        ]
+      }
+    ]
+  },
+  "sum": {
+    "source_sha256": "874f5897bb84c809093503dacd583a6372db698570f6d756998be40dc0e1c936",
+    "driver_sha256": [
+      "2d5dca6e91c7ef9ffded860507f360c808270e14426413cce47f273c672c7393"
+    ],
+    "allow_auto_cta_change": true,
+    "cta_threads": 128,
+    "grid": [
+      2,
+      1,
+      1
+    ],
+    "points": [
+      {
+        "line": 49,
+        "when": "before",
+        "buffer": "x_f32",
+        "shape": [
+          2,
+          512
+        ],
+        "dtype": "float32",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "pid_m",
+          "0",
+          "0"
+        ],
+        "loop_extents": [],
+        "fence_regs": 0,
+        "layout_sha256": [
+          "241a9be4963e23d9dac0853fea19d39ec319d525160bd850ab5086df0f22e67f"
+        ]
+      },
+      {
+        "line": 49,
+        "when": "after",
+        "buffer": "acc",
+        "shape": [
+          2
+        ],
+        "dtype": "float32",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "pid_m",
+          "0",
+          "0"
+        ],
+        "loop_extents": [],
+        "fence_regs": 0,
+        "layout_sha256": [
+          "89a7fa6064f7232a44a349b7682cfcb811dd7b72b9258890e35be8ad3d6001d9"
+        ]
+      }
+    ]
+  },
+  "sum_unpadded": {
+    "source_sha256": "874f5897bb84c809093503dacd583a6372db698570f6d756998be40dc0e1c936",
+    "driver_sha256": [
+      "2d444d012c624c7166508ff864052e5001cc90f7c759efcb797620ecd09ef5ff"
+    ],
+    "allow_auto_cta_change": true,
+    "cta_threads": 128,
+    "grid": [
+      2,
+      1,
+      1
+    ],
+    "points": [
+      {
+        "line": 49,
+        "when": "before",
+        "buffer": "x_f32",
+        "shape": [
+          2,
+          256
+        ],
+        "dtype": "float32",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "pid_m",
+          "0",
+          "0"
+        ],
+        "loop_extents": [],
+        "fence_regs": 0,
+        "layout_sha256": [
+          "76cb8aa6a1167184b0e3c78fae61fd6f996e703c26c981a8c4d51580f8d65fb9"
+        ]
+      },
+      {
+        "line": 49,
+        "when": "after",
+        "buffer": "acc",
+        "shape": [
+          2
+        ],
+        "dtype": "float32",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "pid_m",
+          "0",
+          "0"
+        ],
+        "loop_extents": [],
+        "fence_regs": 0,
+        "layout_sha256": [
+          "9a6ad6b6f51313d6ab695b8ed799f85675c6c029e38581a98c02d60443c4f79e"
+        ]
+      }
+    ]
+  },
+  "gemm": {
+    "source_sha256": "64d1b654857488bfd4b5271b285dbc1c86713abe069215d4a97c1f19e668a714",
+    "driver_sha256": [
+      "13d38f64b4997421616ea130226a5816f1590531d9fc776a6101e19ac5253242"
+    ],
+    "allow_auto_cta_change": false,
+    "cta_threads": 256,
+    "grid": [
+      2,
+      1,
+      1
+    ],
+    "points": [
+      {
+        "line": 116,
+        "when": "after",
+        "buffer": "c_local",
+        "shape": [
+          128,
+          128
+        ],
+        "dtype": "float32",
+        "leader": 128,
+        "threads": 128,
+        "block_vars": [
+          "bx",
+          "by",
+          "0"
+        ],
+        "loop_extents": [
+          4
+        ],
+        "fence_regs": 128,
+        "layout_sha256": [
+          "37fc275dd19b097238925df9f6c2cd4bbc39712a90514265641fec1408f4d76a"
+        ]
+      }
+    ]
+  },
+  "gqa": {
+    "source_sha256": "4d0ecc6f7d341f18674a470d7aab57df48b3b17704af69dff194a9a75f27a145",
+    "driver_sha256": [
+      "94e78af3df4a76de4330a796d1d5bdd055328377e3ead35af55567944d208e51"
+    ],
+    "allow_auto_cta_change": false,
+    "cta_threads": 384,
+    "grid": [
+      2,
+      2,
+      1
+    ],
+    "points": [
+      {
+        "line": 163,
+        "when": "after",
+        "buffer": "acc_s",
+        "shape": [
+          64,
+          128
+        ],
+        "dtype": "float32",
+        "leader": 0,
+        "threads": 128,
+        "block_vars": [
+          "bx",
+          "by",
+          "bz"
+        ],
+        "loop_extents": [],
+        "fence_regs": 64,
+        "layout_sha256": [
+          "9eefdfcdb2e7bb5edaa0d370abc966574ad6f787e3d261c2383cc6e30c68e4a3"
+        ]
+      },
+      {
+        "line": 323,
+        "when": "after",
+        "buffer": "acc_s",
+        "shape": [
+          64,
+          128
+        ],
+        "dtype": "float32",
+        "leader": 128,
+        "threads": 128,
+        "block_vars": [
+          "bx",
+          "by",
+          "bz"
+        ],
+        "loop_extents": [],
+        "fence_regs": 64,
+        "layout_sha256": [
+          "caa2dbda875236e2cdd652c32e58509d2269404f14ece92d4e34557dccc670b7"
+        ]
+      }
+    ]
+  }
+}

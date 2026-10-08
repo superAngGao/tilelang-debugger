@@ -1,0 +1,29 @@
+{
+  "source": "kernel.py",
+  "points": [
+    {
+      "id": "gqa_0",
+      "line": 163,
+      "when": "after",
+      "buffer": "acc_s",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "gqa_1",
+      "line": 323,
+      "when": "after",
+      "buffer": "acc_s",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    }
+  ]
+}
