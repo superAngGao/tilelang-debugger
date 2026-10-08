@@ -2,7 +2,7 @@
   "gelu": {
     "source_sha256": "d3b670c87e0dd7c9a34226de65c48b361790586c881a367c925a42e3f1701c9d",
     "driver_sha256": [
-      "5ed1392d0fbcc58901cef6f882f6cfad55ddebfe08a2a143d3f3894770c9a0a0"
+      "dabfe12b0ee938deff94625b32915ccb80ef5c77d456cff5077092c117e9610c"
     ],
     "allow_auto_cta_change": true,
     "cta_threads": 128,
@@ -59,7 +59,7 @@
   "sum": {
     "source_sha256": "874f5897bb84c809093503dacd583a6372db698570f6d756998be40dc0e1c936",
     "driver_sha256": [
-      "2d5dca6e91c7ef9ffded860507f360c808270e14426413cce47f273c672c7393"
+      "2d7e4607d0ced064e5e244073b2f803df3436f3ce5c6ea3d9c4077718dcec6d4"
     ],
     "allow_auto_cta_change": true,
     "cta_threads": 128,
@@ -117,7 +117,7 @@
   "sum_unpadded": {
     "source_sha256": "874f5897bb84c809093503dacd583a6372db698570f6d756998be40dc0e1c936",
     "driver_sha256": [
-      "2d444d012c624c7166508ff864052e5001cc90f7c759efcb797620ecd09ef5ff"
+      "56e9accad7597ae5f9ca4e9742b369aa49eb5ece455f1f212419e5d7002d5118"
     ],
     "allow_auto_cta_change": true,
     "cta_threads": 128,
@@ -175,7 +175,7 @@
   "gemm": {
     "source_sha256": "64d1b654857488bfd4b5271b285dbc1c86713abe069215d4a97c1f19e668a714",
     "driver_sha256": [
-      "13d38f64b4997421616ea130226a5816f1590531d9fc776a6101e19ac5253242"
+      "1c2c642e5a44a9855f86f781325c5516b7af8cc79fd5bd33ef70713ef4dc9f9d"
     ],
     "allow_auto_cta_change": false,
     "cta_threads": 256,
@@ -214,7 +214,7 @@
   "gqa": {
     "source_sha256": "4d0ecc6f7d341f18674a470d7aab57df48b3b17704af69dff194a9a75f27a145",
     "driver_sha256": [
-      "94e78af3df4a76de4330a796d1d5bdd055328377e3ead35af55567944d208e51"
+      "6457957d9ad4ca47cf04a078159223b00a695dd29e49a12862082c4661f78365"
     ],
     "allow_auto_cta_change": false,
     "cta_threads": 384,

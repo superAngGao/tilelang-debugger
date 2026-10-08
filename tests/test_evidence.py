@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tilelang_debugger.evidence import verify_success
+from tilelang_debugger.evidence import verify_capture, verify_success
 from tilelang_debugger.records import parse
 
 
@@ -64,6 +64,24 @@ class EvidenceTests(unittest.TestCase):
         (self.root / "instrumented/stdout.log").write_text("")
         with self.assertRaises(ValueError):
             verify_success(self.root, "racecheck")
+
+    def test_numeric_mismatch_is_complete_capture_not_acceptance(self):
+        write(self.root / "baseline/reference.json", dict(passed=False))
+        self.assertEqual(len(verify_capture(self.root, "racecheck")), 1)
+        with self.assertRaises(ValueError):
+            verify_success(self.root, "racecheck")
+
+    def test_invalid_reference_boolean_and_summary(self):
+        for passed in (None, 0, 1, "false"):
+            write(self.root / "baseline/reference.json", dict(passed=passed))
+            with self.subTest(passed=passed), self.assertRaises(ValueError):
+                verify_capture(self.root, "racecheck")
+        write(self.root / "baseline/reference.json", dict(passed=False))
+        run = json.loads((self.root / "run.json").read_text())
+        run["numerical_status"] = "passed"
+        write(self.root / "run.json", run)
+        with self.assertRaises(ValueError):
+            verify_capture(self.root, "racecheck")
 
 
 if __name__ == "__main__":

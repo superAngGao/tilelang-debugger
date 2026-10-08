@@ -1,6 +1,4 @@
-import json
-import os
-from pathlib import Path
+from tilelang_debugger.numerics import check_output
 import torch
 import tilelang
 from kernel import build_kernel
@@ -14,7 +12,4 @@ kernel = tilelang.compile(prim, out_idx=[2], target="cuda",
                           pass_configs={"tl.disable_warp_specialized": True}, compile_flags=["-O3", "-DENABLE_BF16"])
 out = kernel(a, b)
 ref = a.float() @ b.float().T
-torch.testing.assert_close(out.float(), ref, atol=0.0625, rtol=0.002)
-if os.getenv("TLDBG_OUTPUT"):
-    Path(os.environ["TLDBG_OUTPUT"], "reference.json").write_text(json.dumps({
-        "passed": True, "atol": 0.0625, "rtol": 0.002, "max_abs_error": (out.float()-ref).abs().max().item()}))
+check_output(out, ref, atol=0.0625, rtol=0.002)

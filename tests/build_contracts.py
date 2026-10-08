@@ -51,7 +51,7 @@ def generate():
                 outer = next(n for n in stmts if isinstance(n, ast.For) and ast.unparse(n.iter) == "T.serial(k_iters)" and n.lineno < p["line"] < n.end_lineno)
                 loops = [dict(line=outer.lineno, iteration=2)]
             selected.append(dict(id=f"{name}_{i}", line=p["line"], when=p["when"], buffer=p["buffer"], block=[1,0,0], loops=loops))
-        (folder / "monitor.json").write_text(json.dumps(dict(source="kernel.py", points=selected), indent=2)+"\n")
+        (folder / "monitor.json").write_text(json.dumps(dict(source="kernel.py", points=selected), indent=2)+"\n", encoding="utf-8", newline="\n")
         if name == "sum":
             driver = (folder / "run.py").read_text().replace("257", "256")
             (folder / "run_unpadded.py").write_text(driver, encoding="utf-8", newline="\n")
@@ -66,7 +66,7 @@ def generate():
             prefix = "sum" if name == "sum_unpadded" else name
             for i, point in enumerate(contract["points"]):
                 point["layout_sha256"] = [layouts[name]["layouts"][f"{prefix}_{i}"]]
-    (ROOT / "src/tilelang_debugger/contracts.json").write_text(json.dumps(contracts, indent=2)+"\n")
+    (ROOT / "src/tilelang_debugger/contracts.json").write_text(json.dumps(contracts, indent=2)+"\n", encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

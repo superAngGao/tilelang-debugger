@@ -202,8 +202,13 @@ def run(driver, config_file, output, timeout=240, sanitizer=None):
         records = parse((output / "instrumented" / "stdout.log").read_text(), bound)
         write_records(output / "records.jsonl", records)
         save_json(output / "points.json", bound)
+        numerical = [json.loads((output / mode / "reference.json").read_text(encoding="utf-8")).get("passed")
+                     for mode in ("baseline", "instrumented")]
+        if any(type(passed) is not bool for passed in numerical):
+            raise ValueError("driver did not produce a valid output reference result")
         result = dict(schema=1, run_id=run_id, status="passed", records=len(records), inputs_equal=True, outputs_bitwise_equal=True,
-                      source_sha256=digest(source.encode()), driver_sha256=digest(driver.read_bytes()), sanitizer=sanitizer)
+                      source_sha256=digest(source.encode()), driver_sha256=digest(driver.read_bytes()), sanitizer=sanitizer,
+                      numerical_status="passed" if all(numerical) else "failed")
         save_json(output / "run.json", result)
         return result
     except Exception as exc:

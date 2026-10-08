@@ -2,7 +2,7 @@
 
 面向 **NVIDIA H200** 的 TileLang 源码定点调试原型：选择源码行、buffer、block 和循环迭代，采集该位置的完整 tile，并保留插桩前后的 IR 与 CUDA，帮助核对中间计算结果。
 
-**当前状态：阶段 1 已实现并通过独立代码审阅及 H200 验收。** 支持范围是本仓库 GELU、Sum、GEMM、GQA 四个样例的固定构建参数和已审阅观察位置。当前以命令行和文件产物为主，尚未支持任意用户 kernel 或交互式调试界面。
+**当前能力：源码定点采集，以及用户 reference 接入与离线数值分析。** 支持范围是本仓库 GELU、Sum、GEMM、GQA 四个样例的固定构建参数和已审阅观察位置。当前以命令行和文件产物为主，尚未支持任意用户 kernel 或交互式调试界面。各阶段验证和独立审阅见文末链接。
 
 ## 现在能看到什么
 
@@ -50,6 +50,8 @@ CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger run examples/gelu/run.py \
 ```
 
 `--output` 必须指向尚不存在的目录。每次运行依次在独立进程中编译并执行 baseline 和 instrumented 两版，分别只 launch 一次。工具在插桩版本 launch 前检查实际生成代码；运行后要求两版输入、最终输出逐位一致，并验证采集记录完整性。样例驱动还会检查最终输出的 reference。
+
+**数值不匹配也可以完成采集。** 此时 `run.json` 为 `status: passed`、`numerical_status: failed`，CLI 退出 2，保留完整 tile 供后续诊断。执行异常、同步检查失败、数据缺失或插桩改变输出仍是采集失败，退出 1；不能作为成功采集交给正常分析。单独运行样例驱动时，reference 不匹配仍会抛出断言。
 
 替换驱动及配置即可运行其他样例：
 
@@ -148,7 +150,49 @@ with (folder / "records.jsonl").open(encoding="utf-8") as stream:
               value(record["bits"], record["dtype"]))
 ```
 
-当前尚无通用数值分析 UI、逐元素误差报告或用户 reference 接入接口。四个样例的中间值 reference 由下面的验收脚本提供，普通 `run` 不会额外生成 `validation.json`。
+## 用 reference 分析数值
+
+四个样例均提供 `examples/<case>/reference.py`，包括中间 tile 和最终输出的独立计算。Sum 的两个尺寸共用一个 reference。分析只需 PyTorch 和 CPU，不加载 TileLang，也不需要重跑 kernel：
+
+```bash
+python -m tilelang_debugger analyze artifacts/gelu-001 \
+  --reference examples/gelu/reference.py \
+  --output artifacts/gelu-analysis-001
+```
+
+分析目录必须尚不存在，且位于 capture 目录之外。工具先核对原始设备日志、记录完整性、输入/输出快照及执行证据，再比较数值。上一阶段保存的完整 capture 也可以直接分析；原始 capture 不会被改写。
+
+| 分析产物 | 内容 |
+| --- | --- |
+| `report.md` | 人可读摘要、每个 tile/输出的误差与前 20 个错误坐标、源码行和 block/迭代 |
+| `analysis.json` | 完成状态、是否全部匹配、容差、错误数、最大误差、NaN/Inf 数量及来源 |
+| `elements.jsonl` | **全部元素**的坐标、actual/expected、双方原始 bits 与 dtype、绝对/相对误差及是否匹配 |
+| `reference.py` | 实际执行的用户 reference 源文件副本 |
+| `evidence.json` | 本次分析所依据的 capture 文件 SHA256 清单 |
+
+可从样例 reference 改写自己的函数；这是显式执行的可信 Python 文件，不是沙箱。第一版使用自包含文件，可 import 标准库和 PyTorch，不支持相对导入其他本地模块：
+
+```python
+def reference(inputs, points):
+    # inputs: 本次 baseline 实际输入的 CPU tensor tuple
+    # points: 观察点元数据，含源码行、buffer、shape、block、loops 等
+    expected_tile = ...    # 根据实际输入及观察点计算
+    expected_output = ...
+    return {
+        "points": {
+            points[0]["id"]: {"tensor": expected_tile, "atol": 0.001, "rtol": 0.0001}
+        },
+        "outputs": [{"tensor": expected_output, "atol": 0.0625, "rtol": 0.002}]
+    }
+```
+
+上例为单观察点接口示意，完整实现见 [GEMM reference](examples/gemm/reference.py)。返回值必须覆盖所有选中点和全部输出，shape 严格一致，不做广播。reference 必须是非空 CPU tensor，浮点支持 FP16/BF16/FP32/FP64；int32 actual 只接受 int32 reference 和零容差。输入及观察点在调用前复制，provider 原地操作不会改变采集的 actual 数据。
+
+比较采用 `abs(actual - expected) <= atol + rtol * abs(expected)`，浮点比较在主机使用 float64。NaN 总是不匹配，同号 Inf 匹配，正负零数值相等且保留原始 bits。期望值为零而实际值非零时，相对误差为 `+Inf`。JSON 中特殊值使用字符串或 null，不使用非标准 NaN/Infinity token。最大误差不纳入 NaN 项，需结合特殊值计数查看。
+
+分析退出码：全部匹配为 **0**；分析完成、发现数值差异为 **2**；证据不完整、reference 接口/计算异常为 **1**。`analysis.json` 相应区分 `completed + matched=true/false` 与 `failed`。新 reference 的结论与驱动原有 reference 结论分别保存：可以对原 reference 不通过的 capture 换一个 reference 重新分析。
+
+普通 `run` 不会额外生成 `validation.json`，该文件由下面的严格验收脚本生成。离线分析的结论保存在独立目录的 `analysis.json`，不会把错误样例改写为验收通过。
 
 ## 数值与同步验证
 
@@ -193,7 +237,7 @@ GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写�
 - 采集对象为完整 fragment，暂不支持直接 shared buffer 采集、`T.Pipelined` / `T.unroll` 内选点或多 launch。
 - 一次采集最多 65,536 个元素，设备 printf FIFO 至少 64 MiB；仍以实际记录完整性检查为准。
 - monitor 会增加 shared memory、寄存器和同步开销，插桩程序不能代表原程序性能。
-- 内存访问索引/边界诊断、通用 reference 接入、自动根因诊断和交互式报告尚未实现。
+- 内存访问索引/边界诊断、自动根因诊断和交互式报告尚未实现。reference 由用户提供，不自动生成。
 
 ## 开发与审阅记录
 
@@ -212,6 +256,10 @@ artifacts/              本地运行产物，不提交到 Git
 # 不需要 GPU 或 TileLang
 python -m unittest discover -s tests -p test_cpu.py -v
 python -m unittest discover -s tests -p test_evidence.py -v
+python -m unittest discover -s tests -p test_numerics.py -v
+
+# 需要 PyTorch，CPU 即可；不加载 TileLang
+python -m unittest discover -s tests -p test_analysis.py -v
 
 # 需要真实 TileLang/TVM，但测试本身不 launch GPU
 python -m unittest discover -s tests -p test_ir.py -v
@@ -225,5 +273,7 @@ CUDA_VISIBLE_DEVICES=0 python tests/validate_print_probe.py \
 - [第三轮独立代码复审：PASS](docs/reviews/phase1-code-review-v3.md)
 - [最终独立验收复核：PASS](docs/reviews/phase1-acceptance-review.md)
 - [全部审阅记录](docs/reviews)，保留前两轮问题及修复过程
+- [第三步实施方案](docs/phase3-plan.md)与[独立设计审阅](docs/reviews/phase3-design-review-v1.md)
+- [第三步独立代码复审：PASS](docs/reviews/phase3-code-review-v2.md)与[CPU/H200验证记录](docs/phase3-validation.md)
 
-下一阶段计划：用户 reference 接入与数值分析 → 访问索引/边界与布局观察 → 分层采集和报告。硬件范围继续聚焦 NVIDIA H200。
+下一阶段计划：运行时访问索引/边界与布局观察 → 分层采集和报告。硬件范围继续聚焦 NVIDIA H200。

@@ -25,11 +25,13 @@ def snapshots(folder, prefix):
     return metadata
 
 
-def verify_success(folder, sanitizer=None):
+def verify_capture(folder, sanitizer=None):
+    if sanitizer not in (None, "racecheck", "synccheck"):
+        raise ValueError("unknown sanitizer mode")
     run = read(folder / "run.json")
     if run.get("status") != "passed" or run.get("sanitizer") != sanitizer or run.get("inputs_equal") is not True or run.get("outputs_bitwise_equal") is not True:
         raise ValueError("capture was not successful under the requested sanitizer mode")
-    versions = []
+    versions, numerical = [], []
     for mode in ("baseline", "instrumented"):
         worker = folder / mode
         execution = read(worker / "execution.json")
@@ -39,8 +41,10 @@ def verify_success(folder, sanitizer=None):
             raise ValueError("worker's pre-launch gate did not pass")
         if read(worker / "process.json") != dict(returncode=0, timeout=False):
             raise ValueError("worker process failed or timed out")
-        if read(worker / "reference.json").get("passed") is not True:
-            raise ValueError("independent output reference failed")
+        passed = read(worker / "reference.json").get("passed")
+        if type(passed) is not bool:
+            raise ValueError("missing or invalid output reference result")
+        numerical.append(passed)
         if sanitizer:
             command = read(worker / "command.json")
             if command[:3] != ["compute-sanitizer", "--tool", sanitizer]:
@@ -52,6 +56,8 @@ def verify_success(folder, sanitizer=None):
         versions.append((snapshots(worker, "inputs"), snapshots(worker, "outputs")))
     if versions[0] != versions[1]:
         raise ValueError("persisted baseline/instrumented tensor data differs")
+    if "numerical_status" in run and run["numerical_status"] != ("passed" if all(numerical) else "failed"):
+        raise ValueError("numeric status differs from worker references")
     points = read(folder / "points.json")
     if not points or points != read(folder / "instrumented" / "points.json"):
         raise ValueError("point metadata is missing or differs from worker")
@@ -59,4 +65,11 @@ def verify_success(folder, sanitizer=None):
     persisted = [json.loads(line) for line in (folder / "records.jsonl").read_text().splitlines()]
     if actual != persisted or len(actual) != run["records"]:
         raise ValueError("records do not match complete original device log")
+    return points
+
+
+def verify_success(folder, sanitizer=None):
+    points = verify_capture(folder, sanitizer)
+    if any(read(folder / mode / "reference.json")["passed"] is not True for mode in ("baseline", "instrumented")):
+        raise ValueError("independent output reference failed")
     return points

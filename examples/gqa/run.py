@@ -1,6 +1,4 @@
-import json
-import os
-from pathlib import Path
+from tilelang_debugger.numerics import check_output
 import torch
 import tilelang
 from kernel import build_kernel
@@ -18,7 +16,4 @@ qh = q.float().permute(0, 2, 1, 3)
 kh = k.float().repeat_interleave(2, dim=2).permute(0, 2, 1, 3)
 vh = v.float().repeat_interleave(2, dim=2).permute(0, 2, 1, 3)
 ref = (torch.softmax((qh @ kh.transpose(-1, -2)) * 0.125, dim=-1) @ vh).permute(0, 2, 1, 3)
-torch.testing.assert_close(out.float(), ref, atol=0.01, rtol=0.01)
-if os.getenv("TLDBG_OUTPUT"):
-    Path(os.environ["TLDBG_OUTPUT"], "reference.json").write_text(json.dumps({
-        "passed": True, "atol": 0.01, "rtol": 0.01, "max_abs_error": (out.float()-ref).abs().max().item()}))
+check_output(out, ref, atol=0.01, rtol=0.01)
