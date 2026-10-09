@@ -9,6 +9,10 @@ LINE = re.compile(r"TLDBG1\|([A-Za-z][A-Za-z0-9_]{0,31})\|0\|(-?\d+)\|(-?\d+)\|(
 
 
 def value(bits, dtype):
+    if dtype == "bool":
+        return bool(bits)
+    if dtype == "int64":
+        return bits - 2**64 if bits >= 2**63 else bits
     if dtype == "int32":
         return struct.unpack("<i", struct.pack("<I", bits))[0]
     if dtype == "bfloat16":

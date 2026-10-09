@@ -16,7 +16,7 @@ def session(points):
     _buffers = {}
     try:
         yield state
-        if any(not p.get("bound") for p in state.values()):
+        if any(not p.get("root_built" if p.get("schema") == 2 else "bound") for p in state.values()):
             raise RuntimeError("an observation point was not built")
     finally:
         _active = None

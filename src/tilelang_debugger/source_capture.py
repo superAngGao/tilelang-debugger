@@ -98,7 +98,7 @@ def worker(folder):
         ins = [i for i in range(len(buffers)) if i not in outs]
         globals_selected = []
         if mode == "instrumented":
-            if any(not p.get("bound") for p in bound.values()):
+            if any(not p.get("root_built" if p.get("schema") == 2 else "bound") for p in bound.values()):
                 raise ValueError("selected source point was not constructed by this kernel")
             bindings = monitor.buffer_bindings()
             for p in bound.values():
@@ -175,7 +175,8 @@ def run(driver, config_file, output, timeout=240, sanitizer=None, *, source_path
     driver, output = Path(driver).resolve(), Path(output).resolve()
     driver_bytes = driver.read_bytes()
     output.mkdir(parents=True, exist_ok=False)
-    result = dict(schema=SCHEMA, engine="source", run_id=uuid.uuid4().hex, status="running",
+    schema = "source-samples-v2" if config.get("schema") == 2 else SCHEMA
+    result = dict(schema=schema, engine="source", run_id=uuid.uuid4().hex, status="running",
                   source_path=config["source"], source_sha256=digest(source.encode()), driver_sha256=digest(driver_bytes), sanitizer=sanitizer)
     save_json(output / "run.json", result)
     save_json(output / "monitor.json", config)
@@ -195,12 +196,18 @@ def run(driver, config_file, output, timeout=240, sanitizer=None, *, source_path
             if (output / "baseline" / f"{prefix}.json").read_bytes() != (output / "instrumented" / f"{prefix}.json").read_bytes():
                 raise ValueError(f"baseline/instrumented {prefix} differ")
         bound = json.loads((output / "instrumented" / "points.json").read_text())
-        records = parse((output / "instrumented" / "stdout.log").read_text(), bound)
+        log = (output / "instrumented" / "stdout.log").read_text()
+        if schema == "source-samples-v2":
+            from .sample_records import parse as parse_samples
+            records, coverage = parse_samples(log, bound)
+            result["coverage"] = coverage
+        else:
+            records = parse(log, bound)
         write_records(output / "records.jsonl", records)
         save_json(output / "points.json", bound)
         refs = [json.loads((output / m / "reference.json").read_text()) for m in ("baseline", "instrumented")]
         result.update(status="passed", records=len(records), inputs_equal=True, outputs_bitwise_equal=True,
-                      numerical_status=reference_status(refs, SCHEMA))
+                      numerical_status=reference_status(refs, schema))
         save_json(output / "run.json", result)
         verify_capture(output, sanitizer)
         return result

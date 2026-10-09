@@ -93,6 +93,9 @@ def markdown(summary):
 
 
 def analyze(capture, reference, output):
+    if read(Path(capture) / "run.json").get("schema") == "source-samples-v2":
+        from .sample_analysis import analyze as analyze_samples
+        return analyze_samples(capture, reference, output)
     capture, reference, output = (Path(p).resolve() for p in (capture, reference, output))
     if output == capture or capture in output.parents:
         raise ValueError("analysis output must be outside the capture directory")

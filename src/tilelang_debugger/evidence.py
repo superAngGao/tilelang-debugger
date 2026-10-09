@@ -17,7 +17,7 @@ def reference_status(references, schema=1):
         passed = ref.get("passed")
         if type(passed) is bool:
             values.append(passed)
-        elif schema == "source-capture-v1" and ref == {"status": "not_provided", "passed": None}:
+        elif schema in ("source-capture-v1", "source-samples-v2") and ref == {"status": "not_provided", "passed": None}:
             values.append(None)
         else:
             raise ValueError("missing or invalid output reference result")
@@ -34,7 +34,7 @@ def snapshots(folder, prefix):
         if m["file"] != f"{prefix}-{i}.bin":
             raise ValueError("unexpected snapshot filename")
         raw = (folder / m["file"]).read_bytes()
-        size = {"float16": 2, "bfloat16": 2, "float32": 4, "int32": 4}[m["dtype"]]
+        size = {"float16": 2, "bfloat16": 2, "float32": 4, "int32": 4, "int64": 8, "bool": 1}[m["dtype"]]
         if len(raw) != m["bytes"] or len(raw) != math.prod(m["shape"]) * size or hashlib.sha256(raw).hexdigest() != m["sha256"]:
             raise ValueError("tensor snapshot bytes do not match metadata")
     return metadata
@@ -74,7 +74,14 @@ def verify_capture(folder, sanitizer=None):
     points = read(folder / "points.json")
     if not points or points != read(folder / "instrumented" / "points.json"):
         raise ValueError("point metadata is missing or differs from worker")
-    actual = parse((folder / "instrumented" / "stdout.log").read_text(), points)
+    log = (folder / "instrumented" / "stdout.log").read_text()
+    if run.get("schema") == "source-samples-v2":
+        from .sample_records import parse as parse_samples
+        actual, coverage = parse_samples(log, points)
+        if coverage != run.get("coverage"):
+            raise ValueError("sample coverage differs from source evidence")
+    else:
+        actual = parse(log, points)
     persisted = [json.loads(line) for line in (folder / "records.jsonl").read_text().splitlines()]
     if actual != persisted or len(actual) != run["records"]:
         raise ValueError("records do not match complete original device log")

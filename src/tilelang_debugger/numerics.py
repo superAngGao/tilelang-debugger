@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 FLOATS = {"float16", "bfloat16", "float32", "float64"}
-WIDTH = {"float16": 2, "bfloat16": 2, "float32": 4, "float64": 8, "int32": 4}
+WIDTH = {"float16": 2, "bfloat16": 2, "float32": 4, "float64": 8, "int32": 4, "int64": 8, "bool": 1}
 
 
 def finite_tolerance(value):
@@ -57,9 +57,9 @@ def compare(actual, expected, atol, rtol):
     atol, rtol = finite_tolerance(atol), finite_tolerance(rtol)
     if actual["shape"] != expected["shape"]:
         raise ValueError("reference shape must exactly match actual (no broadcasting)")
-    if actual["dtype"] == "int32":
-        if expected["dtype"] != "int32" or atol or rtol:
-            raise ValueError("int32 requires int32 reference and zero tolerances")
+    if actual["dtype"] in {"int32", "int64", "bool"}:
+        if expected["dtype"] != actual["dtype"] or atol or rtol:
+            raise ValueError("integer/bool requires identical dtype and zero tolerances")
     elif actual["dtype"] not in FLOATS or expected["dtype"] not in FLOATS:
         raise ValueError("floating actual requires a supported floating reference")
     count = math.prod(actual["shape"])
@@ -69,7 +69,11 @@ def compare(actual, expected, atol, rtol):
     max_abs, max_rel = 0.0, 0.0
     specials = {side: {"nan": 0, "posinf": 0, "neginf": 0} for side in ("actual", "expected")}
     for i, (a, e) in enumerate(zip(actual["values"], expected["values"])):
-        matched, absolute, relative, kind = scalar_error(a, e, atol, rtol)
+        if actual["dtype"] in {"int32", "int64", "bool"}:
+            absolute = abs(int(a) - int(e))
+            matched, relative, kind = a == e, (absolute / abs(e) if e else (0.0 if not absolute else math.inf)), "finite"
+        else:
+            matched, absolute, relative, kind = scalar_error(a, e, atol, rtol)
         for side, number in (("actual", a), ("expected", e)):
             if math.isnan(number):
                 specials[side]["nan"] += 1

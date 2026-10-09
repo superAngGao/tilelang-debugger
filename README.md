@@ -1,14 +1,16 @@
 # TileLang Debugger
 
-面向 **NVIDIA H200** 的 TileLang 源码定点调试原型：选择源码行、buffer、block 和循环迭代，采集该位置的完整 tile，并保留插桩前后的 IR 与 CUDA，帮助核对中间计算结果。
+面向 **NVIDIA H200** 的 TileLang 源码定点调试原型：选择源码行、对象、block、循环迭代和线程，采集完整 tile 或逐执行样本，并保留插桩前后的 IR 与 CUDA，帮助核对中间计算结果。
 
-**当前能力：源码定点数值采集、用户 reference 离线分析，以及受审样例的运行时访问索引观察。** `run` 默认通过 Python 源码插入打印宏，不再用用户源码、driver 或布局摘要作为准入白名单。源码引擎支持普通 CTA 的 fragment 和简单只读 global 输入；异步矩阵、warp-specialized 等已有样例使用 `--engine reviewed`。`trace` 仍限定在原受审样例范围，未随数值入口一起通用化。
+**当前能力：源码定点数值采集、用户 reference 离线分析，以及受审样例的运行时访问索引观察。** `run` 默认通过 Python 源码插入打印宏，不用用户源码、driver 或布局摘要作为准入白名单。配置 `schema: 2` 使用统一嵌套规则，采集 serial/Parallel 和分支内的 scalar/local；旧配置继续采集完整 CTA 的 fragment 和简单只读 global 输入。异步矩阵、warp-specialized 的已有 tile 样例使用 `--engine reviewed`。`trace` 仍限定在原受审样例范围。
 
-新增的 [TileOPs 外部示例](examples/tileops/README.md) 直接导入指定 checkout 的 Softmax、RMSNorm、RoPE。数值采集使用 `examples/tileops/capture.py`；Softmax/RMSNorm 比较中间 fragment，RoPE 当前只打印输入，不声称已采集其中间 scalar 或访问索引。例子和 reference 不属于产品准入规则。
+新增的 [TileOPs 外部示例](examples/tileops/README.md) 直接导入指定 checkout。原 `examples/tileops/capture.py` 比较 Softmax/RMSNorm 中间 fragment 和 RoPE 输入；[嵌套示例](examples/tileops/nested) 进一步观察 MaxPool2D 的窗口累计、索引，RoPE 的中间 scalar，以及分块 Softmax 的完整块／尾块元素。例子和 reference 不属于产品准入规则。
 
 此前 **21 组数值基线、9 次 sanitizer 及 6 次入口拒绝**属于历史验证，见[原验证记录](docs/tileops-integration-validation.md)，不能代替新源码引擎的采集验收。新方案与独立设计审阅见[源码插桩方案](docs/generic-kernel-plan.md)和[设计复审](docs/reviews/generic-kernel-design-review-v3.md)。
 
 新源码引擎已完成 **27 组真实采集与 reference 分析、9 项接入/失败路径、64 项 CPU/TIR 测试**；还验证了真实错误计算和旧 GELU/GQA 回归。[最终独立验收通过](docs/reviews/generic-kernel-acceptance-review.md)；范围、命令和证据摘要见[源码引擎验证记录](docs/generic-kernel-validation.md)。
+
+本轮嵌套 samples 新增 **16 组 H200 采集、1 组 unroll、10 项负例／乱序检查**；CPU/TIR 增至 **78 项**，旧 27 组及 GELU/GQA 回归通过。[独立验收 PASS](docs/reviews/observation-acceptance-review.md)，具体样本数和覆盖范围见[本轮验证记录](docs/observation-validation.md)。
 
 ## 普通用户 kernel 数值采集
 
@@ -21,9 +23,9 @@ python -m tilelang_debugger run /path/to/driver.py \
 
 driver 按原模块名导入源码，保留包内相对导入。源码文件可与 driver 相同；原文件不修改。`--` 之后原样传给 driver。配置仍选择原始行号、buffer、block、循环次数；无需插入用户 API 或增加产品算子分支。
 
-选点须位于完整 CTA 执行位置，在 `T.Parallel` 循环之外；支持最多两层静态 `T.serial` / `T.Serial` / `range`，循环次数从 1 开始。暂不支持条件分支内、pipeline/ws 内、动态循环和 Parallel 内 scalar 点。构建时读取实际 buffer 和 launch 元数据，最多 8 点、65,536 元素。global 仅支持简单源码中无写入/别名的输入，且实参不能与其他输入共享 storage，不支持跨 block 输出快照。
+旧完整 tile 配置的选点须位于完整 CTA 执行位置，在 `T.Parallel` 和分支之外；支持最多两层静态串行循环。嵌套 scalar/local 请使用下述 `schema: 2`。两种配置均在构建时读取实际对象和 launch 元数据，最多 8 点。旧 global 整块采集仅支持简单源码中无写入/别名的输入，且实参不能与其他输入共享 storage，不支持跨 block 输出快照。
 
-打印沿用 Python 层的 fragment→shared→同步→原位 printf→同步宏；编译由 TileLang 完成。工具不读取 layout、不解析 lowering 来定位寄存器；两版 IR/CUDA 原样导出供查看。打印会影响执行时间，采集通过不证明原算法或同步正确。
+旧完整 tile 路径沿用 Python 层的 fragment→shared→同步→原位 printf→同步宏；schema 2 的 scalar/local 在原作用域直接 printf。编译由 TileLang 完成。工具不读取 layout、不解析 lowering 来定位寄存器；两版 IR/CUDA 原样导出供查看。打印会影响执行时间，采集通过不证明原算法或同步正确。
 
 每次独立编译/launch 一次，要求静态 Buffer 参数、非空 `out_idx` 和 contiguous CUDA tensor；多 launch、scalar 参数、in-place 暂不支持。两版输入/输出需逐位一致，记录必须完整。driver 没有 reference 时标为 `not_checked`，可再运行 `analyze --reference`；不会把未检查当成数值通过。
 
@@ -33,6 +35,43 @@ python examples/tileops/capture.py --tileops /path/to/TileOPs \
 ```
 
 ## 指定源码文件
+
+### 嵌套循环、分支和线程样本
+
+小测例放在 [examples/nested_scopes](examples/nested_scopes)，包含三层串行循环、同名变量遮蔽、交替分支、零次循环、编译期 inactive 分支和 Parallel 尾部；`--local` 另测线程私有 buffer、bool、int64 和三种浮点类型。
+
+```bash
+python examples/nested_scopes/configure.py /tmp/nested-monitor.json
+python -m tilelang_debugger run examples/nested_scopes/run.py \
+  --monitor /tmp/nested-monitor.json --output artifacts/nested-capture
+python -m tilelang_debugger analyze artifacts/nested-capture \
+  --reference examples/nested_scopes/reference.py --output artifacts/nested-analysis
+```
+
+新配置示意（行号以用户实际源码为准）：
+
+```json
+{
+  "schema": 2,
+  "source": "/path/to/kernel.py",
+  "points": [{
+    "id": "running_max", "line": 66, "when": "after", "buffer": "max_val",
+    "block": [0, 0, 0], "loops": [], "thread": null
+  }]
+}
+```
+
+`loops: []` 表示采集所有祖先迭代；按原循环行号加入 `{"line": 59, "iteration": 2}` 可选串行第 2 次，Parallel 使用 `{"line": 45, "coordinates": [3]}`。`thread` 指数据来源线程，null 为所有实际执行线程。循环／分支递归累积上下文，不固定两层；同名 induction 变量使用各层快照。支持 Python if/elif/else 及 `T.If/Then/Else`，不重新求值原条件。
+
+对象支持已有 scalar、local Buffer，以及紧跟原写语句的同一标量元素，例如 `tile_f32[i,j]`；元素索引不能额外读取别的 buffer。后者是主动读回原写位置，不是访问追踪。新路径使用已有 printf 机制，不加 collective barrier，不解析 lowering/layout。FP16/BF16/FP32/int32/bool/int64 保留原位值；int64 的离线比较不经过浮点转换。
+
+`TLDBG2` 每条事件都带观察点、thread、原循环坐标、元素索引及结束标记。根／分支见证与数据一起计入 65,536 事件预算。静态域可以检查整实例缺失；Parallel 的物理执行覆盖保持 `unverified`，有分支或 thread 筛选时逻辑覆盖也保持 `unverified`。数值匹配不会把这些状态升级成完整覆盖；无数据且覆盖未闭合不能报告“未执行”。详情见[首批验证记录](docs/observation-validation.md)。
+
+samples reference 仍定义 `reference(inputs, points)`；点规格使用 `schema: 2`、`key: logical|execution`、`dtype`、`samples`、`atol/rtol`。每个样本包含 `coordinates/index/value`，execution 键另含 `thread`。期望键集合须独立生成；缺失样本不能用补零或缩小 reference 域隐藏。输出仍使用旧 tensor reference 规格。完整例子见[小测例 reference](examples/nested_scopes/reference.py)。
+
+当前首批不支持动态／数据相关循环边界、提前退出、Pipelined/未知 context 内的样本点，或 v2 整块 fragment/shared/global。完整 tile 仍走原配置；group/pipeline 的协作策略留待独立验证。未知组合按具体点报错，不因函数其它位置出现 gemm/ws 就禁止 scalar 采集。
+
+### 文件路径
 
 `run` 和 `trace` 都接受用户指定的 `--source FILE`，不再要求输入文件名为 `kernel.py`，也不再寻找 driver 同目录的这个文件。
 
@@ -307,19 +346,19 @@ GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写�
   → 校验记录完整性、两版输入/输出一致性，保存产物
 ```
 
-数值 `run` 的采集宏沿用 TileLang 已有的 fragment→shared 搬运和 printf 机制，在内部搬运后及打印后同步。source 引擎使用全 CTA 同步；reviewed 引擎保留组内同步、operand fence 及原有 IR 布局门禁。数值路径没有新增 lowering pass 或指令，没有修改安装的 TileLang。访问 `trace` 的 Python IR 转换见前述说明。原始源码不覆盖，编译缓存禁用，导出实际编译对象的产物。
+数值 `run` 的完整 fragment 采集沿用 fragment→shared→同步→printf→同步；v2 scalar/local 在原作用域直接输出，不加集体同步。reviewed 引擎保留组内同步、operand fence 及原有 IR 布局门禁。新源码数值路径没有新增 lowering pass 或指令，没有修改安装的 TileLang。访问 `trace` 的 Python IR 转换见前述说明。原始源码不覆盖，编译缓存禁用，导出实际编译对象的产物。
 
 当前限制：
 
 - source 引擎支持前述普通 CTA 源码作用域，不保证任意 kernel 可采集；reviewed 引擎和 trace 仍受四个样例的固定契约限制。
-- source 数值对象为完整 fragment 或简单只读 global 输入，暂不支持直接 shared buffer、`T.Pipelined` / `T.unroll` 内选点或多 launch；访问 trace 可查看上述固定 shared 读写。
-- 一次采集最多 65,536 个元素，设备 printf FIFO 至少 64 MiB；仍以实际记录完整性检查为准。
-- monitor 会增加 shared memory、寄存器和同步开销，插桩程序不能代表原程序性能。
+- 对象和控制流支持范围取决于上述配置版本；group/pipeline 的新协作策略及多 launch 尚未开放。
+- 一次采集最多 65,536 个 tile 元素或 v2 事件（含见证），设备 printf FIFO 至少 64 MiB；v2 预算使用静态保守上界，可能先于实际记录数达到上限。
+- monitor 会增加打印、寄存器等开销；fragment 路径还增加 shared memory 和同步，插桩程序不能代表原程序性能。
 - 访问观察限于表中已审阅位置；任意数据相关 gather 索引、自动根因诊断和交互式报告尚未实现。reference 由用户提供，不自动生成。
 
 ## 开发与审阅记录
 
-下一轮打印策略采用[统一嵌套控制流系统设计](docs/observation-strategy-design.md)，[独立系统设计审阅已通过](docs/reviews/observation-strategy-design-review-v1.md)。循环/分支统一为作用域路径，对象决定打印方式；该设计尚未实施，不能作为当前功能支持清单。
+打印策略采用[统一嵌套控制流系统设计](docs/observation-strategy-design.md)。首批 scalar/local 实施见[具体方案](docs/observation-implementation-plan.md)、[独立方案审阅](docs/reviews/observation-implementation-review.md)、[独立代码审阅](docs/reviews/observation-code-review.md)和[验证记录](docs/observation-validation.md)。系统设计中的后续 group/pipeline 能力不等同于当前支持清单。
 
 ```text
 src/tilelang_debugger/   源码定位、采集宏、IR 检查、运行与记录解析
@@ -339,6 +378,7 @@ python -m unittest discover -s tests -p test_evidence.py -v
 python -m unittest discover -s tests -p test_numerics.py -v
 python -m unittest discover -s tests -p test_access.py -v
 python -m unittest discover -s tests -p test_source_engine.py -v
+python -m unittest discover -s tests -p test_scopes.py -v
 
 # 需要 PyTorch，CPU 即可；不加载 TileLang
 python -m unittest discover -s tests -p test_analysis.py -v

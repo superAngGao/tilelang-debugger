@@ -30,6 +30,9 @@ def readonly_syntax(function, buffer):
 
 
 def prepare(source, config):
+    if config.get("schema") == 2:
+        from .scopes import prepare as prepare_scopes
+        return prepare_scopes(source, config)
     if set(config) != {"source", "points"} or not isinstance(config["points"], list) or not 1 <= len(config["points"]) <= 8:
         raise Unsupported("config requires source and 1..8 points")
     result, seen = [], set()
@@ -90,6 +93,9 @@ def prepare(source, config):
 
 
 def inject(source, points):
+    if points[0].get("schema") == 2:
+        from .scopes import inject as inject_scopes
+        return inject_scopes(source, points)
     tree = ast.parse(source)
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
     helper = "__tldbg_source_capture"

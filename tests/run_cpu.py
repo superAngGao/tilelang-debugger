@@ -14,7 +14,7 @@ def main():
     env=dict(os.environ,CUDA_VISIBLE_DEVICES='',TLACC_FIXTURE=str(Path(args.access_fixture).resolve()))
     results=[]
     for file in ('test_cpu.py','test_evidence.py','test_numerics.py','test_analysis.py','test_ir.py','test_access.py','test_access_ir.py',
-                 'test_source_path.py','test_tileops_integration.py','test_source_engine.py'):
+                 'test_source_path.py','test_tileops_integration.py','test_source_engine.py','test_scopes.py'):
         command=[sys.executable,'-m','unittest','discover','-s','tests','-p',file,'-v']
         result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=120)
         (folder/(file+'.log')).write_text(result.stdout+result.stderr)
