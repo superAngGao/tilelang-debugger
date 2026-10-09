@@ -4,6 +4,10 @@
 
 **当前能力：源码定点数值采集、用户 reference 离线分析，以及运行时访问索引与边界观察。** 支持范围是本仓库 GELU、Sum、GEMM、GQA 四个样例的固定构建参数和已审阅观察位置。当前以命令行和文件产物为主，尚未支持任意用户 kernel 或交互式调试界面。各阶段验证和独立审阅见文末链接。
 
+新增的 [TileOPs 外部示例](examples/tileops/README.md) 直接调用指定 checkout 的 Softmax、RMSNorm、RoPE，用于数值基线与真实调试接入测试。它们不增加产品白名单；当前外部模块接入仍是未完成项。示例基线成功与 debugger 采集成功分别记录，完整验收使用 `--require-debugger`。
+
+这批外部示例已在 H200 上通过 **21 组数值基线和 9 次 sanitizer 检查**；6 次公开 CLI 接入探测均为 `unsupported`，严格调试验收返回失败。具体范围、命令及证据见[验证记录](docs/tileops-integration-validation.md)。
+
 ## 现在能看到什么
 
 以下是仓库自带 `monitor.json` 已经实际验证的采集内容，均选择 block `(1, 0, 0)`：

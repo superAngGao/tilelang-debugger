@@ -1,0 +1,66 @@
+{
+  "schema": "tileops-observation-intent-v1",
+  "source": "src/tileops/kernels/rope.py",
+  "points": [
+    {
+      "id": "input",
+      "factory": "_make_rope_neox_1d",
+      "statement": "val = x[row, col]",
+      "buffer": "x",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "operation": "read"
+    },
+    {
+      "id": "cos",
+      "factory": "_make_rope_neox_1d",
+      "statement": "c = cos_table[row, freq_idx]",
+      "buffer": "cos_table",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "operation": "read"
+    },
+    {
+      "id": "sin",
+      "factory": "_make_rope_neox_1d",
+      "statement": "s = sin_table[row, freq_idx]",
+      "buffer": "sin_table",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "operation": "read"
+    },
+    {
+      "id": "paired",
+      "factory": "_make_rope_neox_1d",
+      "statement": "rotated = T.if_then_else(col < half, -x[row, col + half], x[row, col - half])",
+      "buffer": "x",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "operation": "read"
+    },
+    {
+      "id": "output",
+      "factory": "_make_rope_neox_1d",
+      "statement": "y[row, col] = val * c + rotated * s",
+      "buffer": "y",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "operation": "write"
+    }
+  ]
+}

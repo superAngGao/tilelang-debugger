@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "tileops_repository": "https://github.com/tile-ai/TileOPs",
+  "tileops_commit": "95ba6cae78856ec2f610535fde3d44df198d39e8",
+  "purpose": "Test provenance only; never a product admission whitelist",
+  "dtypes": [
+    "float16",
+    "bfloat16",
+    "float32"
+  ],
+  "tolerances": {
+    "float16": [
+      0.001,
+      0.001
+    ],
+    "bfloat16": [
+      0.016,
+      0.016
+    ],
+    "float32": [
+      0.00001,
+      0.00001
+    ]
+  },
+  "tolerance_note": "Predeclared upstream Softmax/RoPE thresholds; RMSNorm uses these stricter common thresholds. No automatic tolerance relaxation.",
+  "cases": [
+    {
+      "id": "softmax-aligned",
+      "example": "softmax",
+      "module": "tileops.kernels.reduction.softmax",
+      "factory": "_softmax_kernel_single",
+      "M": 4,
+      "N": 256,
+      "block_m": 1,
+      "threads": 128
+    },
+    {
+      "id": "softmax-tail",
+      "example": "softmax",
+      "module": "tileops.kernels.reduction.softmax",
+      "factory": "_softmax_kernel_single",
+      "M": 4,
+      "N": 257,
+      "block_m": 1,
+      "threads": 128
+    },
+    {
+      "id": "softmax-tiled",
+      "example": "softmax",
+      "module": "tileops.kernels.reduction.softmax",
+      "factory": "_softmax_kernel_tiled",
+      "M": 4,
+      "N": 513,
+      "block_m": 1,
+      "threads": 128,
+      "tile_n": 256
+    },
+    {
+      "id": "rms-n256",
+      "example": "rms_norm",
+      "module": "tileops.kernels.norm.rms_norm",
+      "factory": "_rms_norm_kernel",
+      "M": 4,
+      "N": 256,
+      "eps": 0.00001,
+      "block_m": 1,
+      "threads": 128
+    },
+    {
+      "id": "rms-n257",
+      "example": "rms_norm",
+      "module": "tileops.kernels.norm.rms_norm",
+      "factory": "_rms_norm_kernel",
+      "M": 4,
+      "N": 257,
+      "eps": 0.00001,
+      "block_m": 1,
+      "threads": 128
+    },
+    {
+      "id": "rope-32x64",
+      "example": "rope",
+      "module": "tileops.kernels.rope",
+      "factory": "_make_rope_neox_1d",
+      "seq_len": 32,
+      "head_dim": 64,
+      "threads": 128,
+      "num_per_thread": 8
+    },
+    {
+      "id": "rope-16x128",
+      "example": "rope",
+      "module": "tileops.kernels.rope",
+      "factory": "_make_rope_neox_1d",
+      "seq_len": 16,
+      "head_dim": 128,
+      "threads": 128,
+      "num_per_thread": 8
+    }
+  ]
+}

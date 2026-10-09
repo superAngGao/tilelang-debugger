@@ -1,0 +1,42 @@
+{
+  "schema": "tileops-observation-intent-v1",
+  "source": "src/tileops/kernels/norm/rms_norm.py",
+  "points": [
+    {
+      "id": "sumsq",
+      "factory": "_rms_norm_kernel",
+      "statement": "T.reduce_sum(xsq_f32, sumsq, dim=1)",
+      "buffer": "sumsq",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "when": "after"
+    },
+    {
+      "id": "rrms",
+      "factory": "_rms_norm_kernel",
+      "statement": "for i in T.Parallel(block_m):\n    rrms[i] = T.rsqrt(sumsq[i] / float(N) + eps)",
+      "buffer": "rrms",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "when": "after"
+    },
+    {
+      "id": "normalized",
+      "factory": "_rms_norm_kernel",
+      "statement": "T.copy(x_local, shared_buf)",
+      "buffer": "x_local",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "when": "before"
+    }
+  ]
+}

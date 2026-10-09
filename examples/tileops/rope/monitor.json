@@ -1,0 +1,6 @@
+{
+  "schema": "tileops-observation-intent-v1",
+  "source": "src/tileops/kernels/rope.py",
+  "points": [],
+  "note": "No allocated fragment in this kernel. Direct scalar observation in T.Parallel is not implemented; do not rewrite upstream to manufacture a fragment."
+}

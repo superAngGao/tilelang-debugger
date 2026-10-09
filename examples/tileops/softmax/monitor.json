@@ -1,0 +1,48 @@
+{
+  "schema": "tileops-observation-intent-v1",
+  "source": "src/tileops/kernels/reduction/softmax.py",
+  "points": [
+    {
+      "id": "row_max",
+      "factory": "_softmax_kernel_single",
+      "statement": "T.reduce_max(x_f32, row_max, dim=1, clear=False)",
+      "buffer": "row_max",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "branch": "op_kind == 'softmax'",
+      "when": "after"
+    },
+    {
+      "id": "row_sum",
+      "factory": "_softmax_kernel_single",
+      "statement": "T.reduce_sum(x_f32, row_sum, dim=1)",
+      "buffer": "row_sum",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "branch": "op_kind == 'softmax'",
+      "when": "after"
+    },
+    {
+      "id": "tile_sum",
+      "factory": "_softmax_kernel_tiled",
+      "statement": "T.reduce_sum(tile_f32, tile_sum, dim=1)",
+      "buffer": "tile_sum",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "branch": "op_kind == 'softmax'",
+      "when": "after",
+      "iteration_by_variable": {
+        "t": 3
+      }
+    }
+  ]
+}

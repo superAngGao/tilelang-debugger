@@ -1,0 +1,54 @@
+{
+  "schema": "tileops-observation-intent-v1",
+  "source": "src/tileops/kernels/reduction/softmax.py",
+  "points": [
+    {
+      "id": "input_aligned",
+      "factory": "_softmax_kernel_single",
+      "statement": "T.copy(x[pid_m * block_m, 0], shared_buf)",
+      "buffer": "x",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "branch": "op_kind == 'softmax'",
+      "operation": "read",
+      "applies_to": "N % 256 == 0"
+    },
+    {
+      "id": "input_masked",
+      "factory": "_softmax_kernel_single",
+      "statement": "x_f32[i, j] = T.if_then_else(T.And(pid_m * block_m + i < M, j < N), T.cast(x[pid_m * block_m + i, j], \"float32\"), T.cast(_neg_inf, \"float32\"))",
+      "buffer": "x",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "branch": "op_kind == 'softmax'",
+      "operation": "read",
+      "applies_to": "N % 256 != 0",
+      "iteration_by_variable": {
+        "i": 1
+      }
+    },
+    {
+      "id": "input_tiled_masked",
+      "factory": "_softmax_kernel_tiled",
+      "statement": "tile_f32[i, j] = T.if_then_else(T.And(pid_m * block_m + i < M, t * tile_n + j < N), T.cast(x[pid_m * block_m + i, t * tile_n + j], \"float32\"), T.cast(_neg_inf, \"float32\"))",
+      "buffer": "x",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "branch": "op_kind == 'softmax'",
+      "operation": "read",
+      "iteration_by_variable": {
+        "t": 3,
+        "i": 1
+      }
+    }
+  ]
+}

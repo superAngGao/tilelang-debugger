@@ -1,5 +1,7 @@
 # 样例来源与调整
 
+新增 [TileOPs 外部示例](tileops/README.md) 放在 `examples/tileops/`，直接加载指定 checkout 的 Softmax、RMSNorm、RoPE。下面四个已有回归样例保持原样；外部示例的数值基线与调试接入状态单独记录。
+
 四个 kernel 来自 `tilesight-delivery-docs-20260923/examples/kernels` 的 TileOps 独立样例，保留 [LICENSE.TileOps](LICENSE.TileOps)。GELU、Sum、GEMM 的算法源码未改；`run.py` 缩小问题规模，保留至少两个 block，GEMM 有四轮 K 迭代，GQA 有三轮 KV tile。
 
 GQA 原件保留于 `gqa/kernel.original.py`。正式 `gqa/kernel.py` 仅在两个 consumer 的 `T.copy(acc_o, Os[group,:,:])` 后加入：

@@ -1,0 +1,18 @@
+{
+  "schema": "tileops-observation-intent-v1",
+  "source": "src/tileops/kernels/norm/rms_norm.py",
+  "points": [
+    {
+      "id": "weight",
+      "factory": "_rms_norm_kernel",
+      "statement": "x_local[i, j] = (T.cast(x_local[i, j], \"float32\") * rrms[i] * T.cast(weight[j], \"float32\"))",
+      "buffer": "weight",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "operation": "read"
+    }
+  ]
+}
