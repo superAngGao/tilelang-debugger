@@ -22,6 +22,8 @@ def main():
     worker.add_argument("folder")
     source_worker = commands.add_parser("_source_worker", help=argparse.SUPPRESS)
     source_worker.add_argument("folder")
+    unified_worker = commands.add_parser('_unified_worker', help=argparse.SUPPRESS)
+    unified_worker.add_argument('folder')
     trace = commands.add_parser("trace", help="Trace runtime access operands at reviewed source lines")
     trace.add_argument("driver")
     trace.add_argument("--source", help="Kernel source file (relative to cwd); defaults to config source relative to config directory")
@@ -40,6 +42,10 @@ def main():
     if args.command == "_source_worker":
         from .source_capture import worker as source_worker_run
         source_worker_run(args.folder)
+        return
+    if args.command == '_unified_worker':
+        from .runtime.unified_capture import worker as unified_worker_run
+        unified_worker_run(args.folder)
         return
     if args.command in ("trace", "_access_worker"):
         from . import access
@@ -68,5 +74,7 @@ def main():
         else:
             result = capture.run(args.driver, args.monitor, args.output, args.timeout, args.sanitizer, source_path=args.source)
         print(json.dumps(result, indent=2))
+        if result.get('status') == 'partial':
+            raise SystemExit(3)
         if result["numerical_status"] == "failed":
             raise SystemExit(2)

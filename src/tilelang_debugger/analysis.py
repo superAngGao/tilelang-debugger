@@ -93,6 +93,9 @@ def markdown(summary):
 
 
 def analyze(capture, reference, output):
+    if read(Path(capture) / "run.json").get("schema") == "source-unified-v3":
+        from .unified_analysis import analyze as analyze_unified
+        return analyze_unified(capture, reference, output)
     if read(Path(capture) / "run.json").get("schema") == "source-samples-v2":
         from .sample_analysis import analyze as analyze_samples
         return analyze_samples(capture, reference, output)

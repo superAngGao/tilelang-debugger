@@ -1,18 +1,35 @@
 # TileLang Debugger
 
-面向 **NVIDIA H200** 的 TileLang 源码定点调试原型：选择源码行、对象、block、循环迭代和线程，采集完整 tile 或逐执行样本，并保留插桩前后的 IR 与 CUDA，帮助核对中间计算结果。
+面向 **NVIDIA H200** 的 TileLang 源码定点调试工具。选择源码行、对象、block、循环迭代和逻辑选区，采集数值，用用户提供的 reference 离线核对，同时保存插桩前后的 IR 与 CUDA。
 
-**当前能力：源码定点数值采集、用户 reference 离线分析，以及受审样例的运行时访问索引观察。** `run` 默认通过 Python 源码插入打印宏，不用用户源码、driver 或布局摘要作为准入白名单。配置 `schema: 2` 使用统一嵌套规则，采集 serial/Parallel 和分支内的 scalar/local；旧配置继续采集完整 CTA 的 fragment 和简单只读 global 输入。异步矩阵、warp-specialized 的已有 tile 样例使用 `--engine reviewed`。`trace` 仍限定在原受审样例范围。
+**0.2 的 `schema: 3` 统一了嵌套控制流、打印策略和运行记录。** 数值采集在 Python 源码层插入宏，使用已有 printf、搬运和同步机制；不解析 lowered IR/layout 来选择打印方法，不增加 TileLang intrinsic 或 C++ pass，不修改安装的 TileLang。源码和驱动无文件名限制，也没有算子白名单。
 
-新增的 [TileOPs 外部示例](examples/tileops/README.md) 直接导入指定 checkout。原 `examples/tileops/capture.py` 比较 Softmax/RMSNorm 中间 fragment 和 RoPE 输入；[嵌套示例](examples/tileops/nested) 进一步观察 MaxPool2D 的窗口累计、索引，RoPE 的中间 scalar，以及分块 Softmax 的完整块／尾块元素。例子和 reference 不属于产品准入规则。
+## 支持范围
 
-此前 **21 组数值基线、9 次 sanitizer 及 6 次入口拒绝**属于历史验证，见[原验证记录](docs/tileops-integration-validation.md)，不能代替新源码引擎的采集验收。新方案与独立设计审阅见[源码插桩方案](docs/generic-kernel-plan.md)和[设计复审](docs/reviews/generic-kernel-design-review-v3.md)。
+| 维度 | schema 3 的行为 |
+| --- | --- |
+| 源码位置 | 原始语句前后，包括循环/分支整体前后；最多 8 个观察点 |
+| 控制流 | 多重 serial/unroll/Parallel/Pipelined、分支、显式 Group，动态循环边界、while、合法 break/continue |
+| 数据 | scalar、线程 local、fragment、shared/shared.dyn、global；整块或静态选区，也可观察单个 Buffer 元素 |
+| 协作采集 | fragment 经 shared 中转；shared/global 直接读取；同步独立于 reader、迭代筛选及输出预算 |
+| 类型 | bool、int8/16/32/64、uint8/16/32/64、FP16/BF16/FP32/FP64，保存原始位模式 |
+| 运行 | 多次 build/compile/launch、标量参数、in-place、参数别名、多维 CTA 元数据 |
+| 完整性 | 独立线程域与结束计数，检查整线程、整次访问、元素缺失、重复、截断和溢出 |
+| 数值分析 | 按 launch 对齐中间样本、调用后的参数和返回值；整数精确比较，不转浮点 |
 
-新源码引擎已完成 **27 组真实采集与 reference 分析、9 项接入/失败路径、64 项 CPU/TIR 测试**；还验证了真实错误计算和旧 GELU/GQA 回归。[最终独立验收通过](docs/reviews/generic-kernel-acceptance-review.md)；范围、命令和证据摘要见[源码引擎验证记录](docs/generic-kernel-validation.md)。
+以上是功能范围；具体已测组合见[验证记录](docs/unified-capture-validation.md)。测试不能证明任意程序的同步或线程分工正确。
 
-本轮嵌套 samples 新增 **16 组 H200 采集、1 组 unroll、10 项负例／乱序检查**；CPU/TIR 增至 **78 项**，旧 27 组及 GELU/GQA 回归通过。[独立验收 PASS](docs/reviews/observation-acceptance-review.md)，具体样本数和覆盖范围见[本轮验证记录](docs/observation-validation.md)。
+## 环境与安装
 
-## 普通用户 kernel 数值采集
+GPU 运行使用 Linux + H200。验证环境为 TileLang `0.1.12`（checkout `2d63708c8ad57196051c4636a1167c5453c73a48`）、PyTorch `2.10.0+cu129`、CUDA 编译器 `13.2.78`、驱动 `595.71.05`、Compute Sanitizer `2026.1.1.0`。工具核对所依赖 helper 的摘要；同版本号不保证实现相同。本包不自动安装或替换 GPU 依赖。
+
+```bash
+git clone https://github.com/superAngGao/tilelang-debugger.git
+cd tilelang-debugger
+python -m pip install -e .
+```
+
+## 从用户源码采集
 
 ```bash
 python -m tilelang_debugger run /path/to/driver.py \
@@ -21,412 +38,139 @@ python -m tilelang_debugger run /path/to/driver.py \
   -- --driver-option value
 ```
 
-driver 按原模块名导入源码，保留包内相对导入。源码文件可与 driver 相同；原文件不修改。`--` 之后原样传给 driver。配置仍选择原始行号、buffer、block、循环次数；无需插入用户 API 或增加产品算子分支。
+原文件不修改；临时副本按原模块名导入，保留包内相对导入。source 可以与 driver 是同一文件。`--source` 相对当前目录；配置 `source` 相对配置文件目录，显式参数优先。`--` 后的参数原样传给 driver。输出目录必须尚不存在。
 
-旧完整 tile 配置的选点须位于完整 CTA 执行位置，在 `T.Parallel` 和分支之外；支持最多两层静态串行循环。嵌套 scalar/local 请使用下述 `schema: 2`。两种配置均在构建时读取实际对象和 launch 元数据，最多 8 点。旧 global 整块采集仅支持简单源码中无写入/别名的输入，且实参不能与其他输入共享 storage，不支持跨 block 输出快照。
-
-旧完整 tile 路径沿用 Python 层的 fragment→shared→同步→原位 printf→同步宏；schema 2 的 scalar/local 在原作用域直接 printf。编译由 TileLang 完成。工具不读取 layout、不解析 lowering 来定位寄存器；两版 IR/CUDA 原样导出供查看。打印会影响执行时间，采集通过不证明原算法或同步正确。
-
-每次独立编译/launch 一次，要求静态 Buffer 参数、非空 `out_idx` 和 contiguous CUDA tensor；多 launch、scalar 参数、in-place 暂不支持。两版输入/输出需逐位一致，记录必须完整。driver 没有 reference 时标为 `not_checked`，可再运行 `analyze --reference`；不会把未检查当成数值通过。
-
-```bash
-python examples/tileops/capture.py --tileops /path/to/TileOPs \
-  --case rms-n257-float16 --output artifacts/rms-capture --sanitizer racecheck
-```
-
-## 指定源码文件
-
-### 嵌套循环、分支和线程样本
-
-小测例放在 [examples/nested_scopes](examples/nested_scopes)，包含三层串行循环、同名变量遮蔽、交替分支、零次循环、编译期 inactive 分支和 Parallel 尾部；`--local` 另测线程私有 buffer、bool、int64 和三种浮点类型。
-
-```bash
-python examples/nested_scopes/configure.py /tmp/nested-monitor.json
-python -m tilelang_debugger run examples/nested_scopes/run.py \
-  --monitor /tmp/nested-monitor.json --output artifacts/nested-capture
-python -m tilelang_debugger analyze artifacts/nested-capture \
-  --reference examples/nested_scopes/reference.py --output artifacts/nested-analysis
-```
-
-新配置示意（行号以用户实际源码为准）：
+例如在源码第 66 行赋值后观察 scalar：
 
 ```json
 {
-  "schema": 2,
-  "source": "/path/to/kernel.py",
+  "schema": 3,
+  "source": "/path/to/my_kernel.py",
+  "budget": 65536,
   "points": [{
     "id": "running_max", "line": 66, "when": "after", "buffer": "max_val",
-    "block": [0, 0, 0], "loops": [], "thread": null
+    "block": [0, 0, 0], "loops": []
   }]
 }
 ```
 
-`loops: []` 表示采集所有祖先迭代；按原循环行号加入 `{"line": 59, "iteration": 2}` 可选串行第 2 次，Parallel 使用 `{"line": 45, "coordinates": [3]}`。`thread` 指数据来源线程，null 为所有实际执行线程。循环／分支递归累积上下文，不固定两层；同名 induction 变量使用各层快照。支持 Python if/elif/else 及 `T.If/Then/Else`，不重新求值原条件。
+`line` 指原始语句的开始行；`when` 为 `before` 或 `after`。`loops: []` 采集所有祖先迭代；`{"line": 59, "iteration": 2}` 选择该层第 2 次执行，从 1 开始，每次重新进入该循环重新计数。Parallel 用 `{"line": 45, "coordinates": [3]}` 选择原循环坐标。
 
-对象支持已有 scalar、local Buffer，以及紧跟原写语句的同一标量元素，例如 `tile_f32[i,j]`；元素索引不能额外读取别的 buffer。后者是主动读回原写位置，不是访问追踪。新路径使用已有 printf 机制，不加 collective barrier，不解析 lowering/layout。FP16/BF16/FP32/int32/bool/int64 保留原位值；int64 的离线比较不经过浮点转换。
-
-`TLDBG2` 每条事件都带观察点、thread、原循环坐标、元素索引及结束标记。根／分支见证与数据一起计入 65,536 事件预算。静态域可以检查整实例缺失；Parallel 的物理执行覆盖保持 `unverified`，有分支或 thread 筛选时逻辑覆盖也保持 `unverified`。数值匹配不会把这些状态升级成完整覆盖；无数据且覆盖未闭合不能报告“未执行”。详情见[首批验证记录](docs/observation-validation.md)。
-
-samples reference 仍定义 `reference(inputs, points)`；点规格使用 `schema: 2`、`key: logical|execution`、`dtype`、`samples`、`atol/rtol`。每个样本包含 `coordinates/index/value`，execution 键另含 `thread`。期望键集合须独立生成；缺失样本不能用补零或缩小 reference 域隐藏。输出仍使用旧 tensor reference 规格。完整例子见[小测例 reference](examples/nested_scopes/reference.py)。
-
-当前首批不支持动态／数据相关循环边界、提前退出、Pipelined/未知 context 内的样本点，或 v2 整块 fragment/shared/global。完整 tile 仍走原配置；group/pipeline 的协作策略留待独立验证。未知组合按具体点报错，不因函数其它位置出现 gemm/ws 就禁止 scalar 采集。
-
-### 文件路径
-
-`run` 和 `trace` 都接受用户指定的 `--source FILE`，不再要求输入文件名为 `kernel.py`，也不再寻找 driver 同目录的这个文件。
-
-```bash
-python -m tilelang_debugger run examples/gelu/run.py --engine reviewed \
-  --source /path/to/gelu_impl.py --monitor examples/gelu/monitor.json \
-  --output artifacts/gelu-custom-source
-```
-
-`--source` 的相对路径基于当前工作目录；未指定时使用配置中的 `source`，其相对路径基于**配置文件所在目录**。显式参数优先。实际路径保存于 `source.json`、运行/观察点元数据及报告。source 引擎保存 `source/original.py` 和 `instrumented.py` 快照，但导入仍使用原文件路径；reviewed 引擎使用历史 `source/kernel.py` 快照。
-
-source 引擎要求 driver 实际执行或导入选定文件；加载了另一个安装版本会失败，不会寻找同目录 `kernel.py` 替代。reviewed 引擎继续保留历史源码/driver 契约，供已有受审样例回归。
-
-已在 H200 上验证改名、移目录和含空格路径，数值/访问采集各得到 4096 条记录，报告关联实际输入文件；详见[路径输入验证](docs/source-path-validation.md)。
-
-## 现在能看到什么
-
-以下是原受审引擎（`run --engine reviewed`）已经验证的内容，均选择 block `(1, 0, 0)`：
-
-| 样例 | 观察位置与数据 | 用途 | 记录数 |
-| --- | --- | --- | ---: |
-| [GELU](examples/gelu) | 加载后的 `x_reg` 和计算后的 `y_reg`，各 2048 个 BF16 元素 | 核对输入及逐元素 GELU 结果 | 4096 |
-| [Sum](examples/sum)，N=257 | 归约前 `x_f32[2,512]`，含补零部分；归约后 `acc[2]`，均为 FP32 | 检查加载、padding 和每行求和 | 1026 |
-| Sum，N=256 | 无 padding 路径的 `x_f32[2,256]` 和 `acc[2]` | 对照无 padding 时的加载与归约 | 514 |
-| [GEMM](examples/gemm) | 第 2 次 K 循环完成后的 `c_local[128,128]`，FP32 | 检查前 128 个 K 元素贡献的部分累加结果 | 16384 |
-| [GQA](examples/gqa) | 两个 consumer 各自首次 QK 计算完成后的 `acc_s[64,128]`，FP32 | 分别核对两组 QK 分数；当前未采集 softmax/PV 中间值 | 16384 |
-
-每个元素都有观察点、launch、block、循环变量值、逻辑索引和原始位模式；观察点另附源码行、buffer 名、shape 和 dtype。按这些身份重建 tile，不依赖设备日志的出现顺序。重复、缺失、截断和身份不匹配都会判为失败。
-
-采集支持 `float16`、`bfloat16`、`float32`、`int32`，以原始位模式保存，避免 `%f` 文本转换损失精度。数值展示时可以解码；需要核对 NaN payload 等细节时，应直接比较 `bits`。
-
-## 看一次访问的索引与边界
-
-`trace` 在源码中选择访问语句、block 和串行循环次数，采集 lowering 后**原访问表达式在 GPU 上的值**。它与数值 `run` 分开执行，使用独立的 `access.json`；不会在原 kernel 文件里写入代码。
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger trace examples/sum/run.py \
-  --access examples/sum/access.json \
-  --output artifacts/sum-access-001 --sanitizer memcheck
-```
-
-| 样例 / 配置 | 原始源码位置 | 默认选择得到什么 | 记录数 |
-| --- | --- | --- | ---: |
-| GELU / `examples/gelu/access.json` | 87 行 read x、90 行 write y | global 元素偏移、字节偏移、线程及向量分量 | 4096 |
-| Sum N=257 / `examples/sum/access.json` | 35 行 read x，33 行循环第 1 次 | 512 个候选访问：257 active、255 masked | 512 |
-| Sum N=256 / `examples/sum/access_unpadded.json` | 42 行 read x / write shared_buf；47 行 read shared_buf | global→shared 两端分别记录，以及第一行 shared 读取 | 1280 |
-| GEMM / `examples/gemm/access.json` | 93/98 行 transfer a/b，70/77 行循环均第 2 次 | 两次实际 TMA 调用的坐标、shared 偏移、barrier 下标及 issuer | 2 |
-| GQA / `examples/gqa/access.json` | 114/115/120/128/293/455 行 | Q 两次加载、第二轮 K/V 加载、两个 consumer 输出写回 | 6 |
-
-Sum N=256 使用驱动 `examples/sum/run_unpadded.py`。其余驱动均为样例目录下的 `run.py`。所有默认配置选择 block `(1,0,0)`；`loops[].iteration` 从 1 开始，记录保留从 0 开始的实际循环变量。可在这些受审位置选择其他合法 block / 串行迭代；GEMM 的 ring slot 必须与所选 K 迭代匹配。
-
-普通读写逐线程、逐向量分量记录索引，保持原向量访存不变，不额外读取目标数据。掩码为 false 的候选访问单独展示，不能把它判为非法读取。TMA 则**每次实际搬运调用一条记录**，不伪造逐线程 global 元素访问；线程来自原 election 的结果。
-
-主要产物：
-
-- `access-report.md`：源码行、记录数、active/masked 统计和 TMA 逻辑区域。
-- `access-records.jsonl`：runtime block、线程、循环值、索引或 TMA 实参；主键包含 run / launch / site，不依赖日志顺序。
-- `access-points.json`：源码身份、原索引/guard 表达式、向量宽度、预期事件域及 shared 别名信息。
-- `access-analysis.json`：边界解释和 TMA 区域。descriptor 参数标为 `derived_from_host_ir_and_launch_bindings`，不声称读取过 opaque descriptor。
-- 两个 worker 目录中的 `pretrace.py/json`、`codegen.py/json`、`kernel.cu`、`descriptors.json` 和进程/门禁/sanitizer 记录；插桩目录另存 `traced.py/json`。
-
-实现是在原 CUDA pipeline 结束后追加 Python IR 日志转换，继续使用既有 `printf`；不新增 TileLang intrinsic、C++ lowering 指令或安装文件修改，也不添加采集 barrier/shared 中转。插桩前 IR 必须符合已授权 baseline；移除日志后，pipeline 边界和真实 codegen 输入均须与基线结构等价。TMA host 构造与实际 launch 参数另外核对。实验中的 FFI hook 会在进程退出时崩溃，产品路径没有采用它。
-
-`trace` 支持 `--sanitizer racecheck|synccheck|memcheck`，记录预算为 65,536 条、FIFO 至少 64 MiB。缺失、重复、截断、未知事件、原程序故障或两版输出不一致均失败。最终 reference 不匹配时保留采集，CLI 退出 2。访问记录描述插桩程序的 IR 实参，不证明硬件事务完成；TMA shared swizzle 的物理逐元素地址尚未展开，也不自动判断并发竞态或根因。
-
-## 环境与安装
-
-GPU 运行需要 **Linux + NVIDIA H200 + 已核查的 TileLang 环境**。当前验证环境为：
-
-| 组件 | 已验证版本 |
-| --- | --- |
-| TileLang | `0.1.12`，源码 checkout `2d63708c8ad57196051c4636a1167c5453c73a48` |
-| PyTorch | `2.10.0+cu129` |
-| CUDA 编译器 / 驱动 | `13.2.78` / `595.71.05` |
-| Compute Sanitizer | `2026.1.1.0`，运行同步检查时使用 |
-
-工具会核对 TileLang 打印和同步 helper 的摘要。仅执行 `pip install tilelang==0.1.12` 不保证得到相同实现；本包也不会自动安装或替换 TileLang、PyTorch、CUDA。请先准备上述已验证环境，再安装本项目：
-
-```bash
-git clone https://github.com/superAngGao/tilelang-debugger.git
-cd tilelang-debugger
-python -m pip install -e .
-```
-
-以下命令均从仓库根目录执行。无 GPU 依赖的源码和记录测试也可在 Windows 运行。
-
-## 运行一次采集
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger run examples/gelu/run.py --engine reviewed \
-  --monitor examples/gelu/monitor.json \
-  --output artifacts/gelu-001
-```
-
-`--output` 必须指向尚不存在的目录。每次运行依次在独立进程中编译并执行 baseline 和 instrumented 两版，分别只 launch 一次。工具在插桩版本 launch 前检查实际生成代码；运行后要求两版输入、最终输出逐位一致，并验证采集记录完整性。样例驱动还会检查最终输出的 reference。
-
-**数值不匹配也可以完成采集。** 此时 `run.json` 为 `status: passed`、`numerical_status: failed`，CLI 退出 2，保留完整 tile 供后续诊断。执行异常、同步检查失败、数据缺失或插桩改变输出仍是采集失败，退出 1；不能作为成功采集交给正常分析。单独运行样例驱动时，reference 不匹配仍会抛出断言。
-
-替换驱动及配置即可运行其他样例：
-
-| 样例 | 驱动 | 采集配置 |
-| --- | --- | --- |
-| GELU | `examples/gelu/run.py` | `examples/gelu/monitor.json` |
-| Sum，N=257 | `examples/sum/run.py` | `examples/sum/monitor.json` |
-| Sum，N=256 | `examples/sum/run_unpadded.py` | `examples/sum/monitor.json` |
-| GEMM | `examples/gemm/run.py` | `examples/gemm/monitor.json` |
-| GQA | `examples/gqa/run.py` | `examples/gqa/monitor.json` |
-
-需要 Compute Sanitizer 时附加 `--sanitizer racecheck` 或 `--sanitizer synccheck`。可用 `--timeout 600` 调整单个 worker 的超时秒数，默认 240 秒。驱动是本地可信 Python 代码，worker 不是安全沙箱。
-
-## 如何选择源码位置
-
-配置中的行号指向**用户选定的原始源码文件**，多行语句使用开始行。例如 reviewed 引擎的 GEMM 配置：
+整块 fragment/shared/global 需增加显式协作契约，例如：
 
 ```json
 {
-  "source": "kernel.py",
-  "points": [{
-    "id": "gemm_0",
-    "line": 116,
-    "when": "after",
-    "buffer": "c_local",
-    "block": [1, 0, 0],
-    "loops": [{"line": 113, "iteration": 2}]
-  }]
+  "id": "acc", "line": 82, "when": "after", "buffer": "accumulator",
+  "block": [0, 0, 0], "loops": [],
+  "region": [[0, 32, 1], [0, 64, 2]],
+  "collective": {"ready": true, "uniform": true}
 }
 ```
 
-含义是：在原始第 113 行循环的**第 2 次执行**中，于第 116 行开始的语句执行完后，采集 block `(1,0,0)` 的 `c_local`。此处观察的是整个 ring dispatch 完成后的累加器。
+`region` 每维为 `[start, stop, step]`，省略时观察整块。`ready` 声明数据已就绪；位于循环或分支内时，`uniform` 声明所有协作线程一致到达该位置。工具不会替用户证明异步操作已经完成。显式 `T.ws`/`T.WarpSpecialize` 组内采集还须用 `barrier: 1..15` 指定用户保留的 named barrier。已有 WGMMA 模式可指定 `fence_regs`，但 fence 不替代异步完成等待。
 
-- `when`：语句的 `before` 或 `after`；reviewed 引擎另要求符合受审配置。
-- `iteration`：从 **1** 开始的执行序号；输出记录中的 `loops` 保存实际循环变量值，因此这里是 `[1]`，即 `ki=1`。
-- `block`：从 **0** 开始的三维 block 坐标。
-- `buffer`：原始源码中的变量名。source 引擎直接引用它，不重命名用户 buffer。
+### 是否需要选线程
 
-source 引擎按前述源码作用域规则选择位置，修改源码不要求增加摘要契约；reviewed 引擎仍只接受受审位置、参数及同步协议。不能把两种引擎的支持范围混为一谈。
+**普通整块/选区采集不需要指定线程。** 用户选逻辑元素，工具安排 reader；reader 只负责输出，不代表这些值由它计算。高级配置 `collective.reader` 可更换 reader，通常省略。
 
-## 输出文件怎么读
+scalar/local 的值与线程有关，才使用可选 `thread` 筛选；省略时采集所有到达该点的线程。它可以是线性编号或 `[x,y,z]`，线性编号为 `x + extent_x * (y + extent_y * z)`。这是**源码前端线程域**，自动 warp specialization 后不一定等于硬件 CUDA 线程编号。记录明确保存 `thread_space: frontend`。整块采集不能用 `thread` 代替逻辑选区。
 
-成功运行的主要产物如下；`baseline/` 和 `instrumented/` 各自保存对应版本的编译与执行信息：
+`buffer` 也可为纯索引元素，例如 `tile[i,j]`；这是新增读取，不是原访存追踪。索引越界会记录错误并跳过新增读取。循环和线程筛选控制输出；参与协作的线程仍执行必要同步。预算耗尽时也继续同步和原计算，不会留下半个 tile。
 
-```text
-artifacts/gelu-001/
-├── run.json                  # 本次运行身份、状态、记录数和两版一致性
-├── monitor.json              # 用户选择的观察点配置
-├── points.json               # 观察点的源码身份、shape、dtype、循环值等
-├── records.jsonl             # 每个元素一条记录，bits 为规范值
-├── baseline/
-└── instrumented/
-    ├── source/               # 本次实际使用的源码副本
-    ├── frontend.py           # 前端 IR
-    ├── device.py             # 最终 device IR
-    ├── kernel.cu             # 实际生成的 CUDA
-    ├── compile.json          # 编译配置及提取的同步/分配信息
-    ├── environment.json      # 软件与设备环境
-    ├── launch-gate.json      # launch 前检查结果
-    ├── inputs.json / outputs.json
-    ├── inputs-*.bin / outputs-*.bin
-    ├── reference.json        # 样例最终输出的 reference 检查
-    ├── execution.json / process.json
-    └── stdout.log / stderr.log
-```
+## 完整性与运行产物
 
-指定 sanitizer 后，还会保存对应检查日志。失败时保留已产生的文件和失败状态，不应将部分数据当作完整 tile。
+每个 `run / compile / launch / point / frontend thread / visit / element` 有独立身份。`visit` 是该点该线程在一次 launch 内累计的选中到达次数，可区分重复坐标；记录同时保存原循环坐标及各层执行序号。
 
-例如 GEMM 的一条真实记录：
+TLDBG3 使用 D 数据、E 结束计数及 X 非法读取事件。每个所选 block 的前端线程都必须输出 E，包括零次到达和编译期 inactive 的点。预期线程域来自前端 launch，不能从收到的日志反推。允许线程间日志乱序；缺失任意预期结束记录或已声明的数据均失败。
 
-```json
-{"schema":1,"point":"gemm_0","launch":0,"block":[1,0,0],"loops":[1],"index":0,"bits":3229736808,"dtype":"float32"}
-```
-
-结合 `points.json`，它表示第 2 次 K 循环后的 `c_local[0,0]`。`index` 是 tile 的行优先展平索引，不是线程号或物理地址。run 身份保存在同目录的 `run.json` 中。
-
-下面的 CPU 示例读取一次 GELU 采集的前 8 个元素，无需 GPU：
-
-```python
-import json
-from pathlib import Path
-from tilelang_debugger.records import value
-
-folder = Path("artifacts/gelu-001")
-run = json.loads((folder / "run.json").read_text(encoding="utf-8"))
-assert run["status"] == "passed", run
-points = {
-    p["id"]: p
-    for p in json.loads((folder / "points.json").read_text(encoding="utf-8"))
-}
-with (folder / "records.jsonl").open(encoding="utf-8") as stream:
-    for _, line in zip(range(8), stream):
-        record = json.loads(line)
-        point = points[record["point"]]
-        print(point["buffer"], record["index"],
-              value(record["bits"], record["dtype"]))
-```
-
-## 用 reference 分析数值
-
-四个样例均提供 `examples/<case>/reference.py`，包括中间 tile 和最终输出的独立计算。Sum 的两个尺寸共用一个 reference。分析只需 PyTorch 和 CPU，不加载 TileLang，也不需要重跑 kernel：
-
-```bash
-python -m tilelang_debugger analyze artifacts/gelu-001 \
-  --reference examples/gelu/reference.py \
-  --output artifacts/gelu-analysis-001
-```
-
-分析目录必须尚不存在，且位于 capture 目录之外。工具先核对原始设备日志、记录完整性、输入/输出快照及执行证据，再比较数值。上一阶段保存的完整 capture 也可以直接分析；原始 capture 不会被改写。
-
-| 分析产物 | 内容 |
-| --- | --- |
-| `report.md` | 人可读摘要、每个 tile/输出的误差与前 20 个错误坐标、源码行和 block/迭代 |
-| `analysis.json` | 完成状态、是否全部匹配、容差、错误数、最大误差、NaN/Inf 数量及来源 |
-| `elements.jsonl` | **全部元素**的坐标、actual/expected、双方原始 bits 与 dtype、绝对/相对误差及是否匹配 |
-| `reference.py` | 实际执行的用户 reference 源文件副本 |
-| `evidence.json` | 本次分析所依据的 capture 文件 SHA256 清单 |
-
-可从样例 reference 改写自己的函数；这是显式执行的可信 Python 文件，不是沙箱。第一版使用自包含文件，可 import 标准库和 PyTorch，不支持相对导入其他本地模块：
-
-```python
-def reference(inputs, points):
-    # inputs: 本次 baseline 实际输入的 CPU tensor tuple
-    # points: 观察点元数据，含源码行、buffer、shape、block、loops 等
-    expected_tile = ...    # 根据实际输入及观察点计算
-    expected_output = ...
-    return {
-        "points": {
-            points[0]["id"]: {"tensor": expected_tile, "atol": 0.001, "rtol": 0.0001}
-        },
-        "outputs": [{"tensor": expected_output, "atol": 0.0625, "rtol": 0.002}]
-    }
-```
-
-上例为单观察点接口示意，完整实现见 [GEMM reference](examples/gemm/reference.py)。返回值必须覆盖所有选中点和全部输出，shape 严格一致，不做广播。reference 必须是非空 CPU tensor，浮点支持 FP16/BF16/FP32/FP64；int32 actual 只接受 int32 reference 和零容差。输入及观察点在调用前复制，provider 原地操作不会改变采集的 actual 数据。
-
-比较采用 `abs(actual - expected) <= atol + rtol * abs(expected)`，浮点比较在主机使用 float64。NaN 总是不匹配，同号 Inf 匹配，正负零数值相等且保留原始 bits。期望值为零而实际值非零时，相对误差为 `+Inf`。JSON 中特殊值使用字符串或 null，不使用非标准 NaN/Infinity token。最大误差不纳入 NaN 项，需结合特殊值计数查看。
-
-分析退出码：全部匹配为 **0**；分析完成、发现数值差异为 **2**；证据不完整、reference 接口/计算异常为 **1**。`analysis.json` 相应区分 `completed + matched=true/false` 与 `failed`。新 reference 的结论与驱动原有 reference 结论分别保存：可以对原 reference 不通过的 capture 换一个 reference 重新分析。
-
-普通 `run` 不会额外生成 `validation.json`，该文件由下面的严格验收脚本生成。离线分析的结论保存在独立目录的 `analysis.json`，不会把错误样例改写为验收通过。
-
-## 数值与同步验证
-
-完整验收会同时检查中间 tile、最终输出、两版输入/输出逐位一致性和 sanitizer 结果：
-
-```bash
-# 四类样例、五条路径；包含中间 tile reference
-CUDA_VISIBLE_DEVICES=0 python tests/validate_gpu.py \
-  --output artifacts/acceptance --sanitizer racecheck
-
-# GEMM / GQA 的同步检查
-CUDA_VISIBLE_DEVICES=0 python tests/validate_gpu.py \
-  --output artifacts/sync --sanitizer synccheck --cases gemm gqa
-
-# 四种 dtype 的原始位模式保真
-CUDA_VISIBLE_DEVICES=0 python tests/fidelity.py \
-  --output artifacts/bits --sanitizer racecheck
-```
-
-`validate_gpu.py` 在每个 case 下额外写入 `validation.json`，记录中间 tile 和最终输出的 reference 误差与是否通过，并在根目录生成 `summary.json`。reference 针对这些已知样例编写，不自动为任意程序生成。
-
-2026-10-08 的 H200 验收结果：五条路径全部通过，baseline/instrumented 共十次 racecheck 均为零错误/警告；GEMM/GQA 共四次 synccheck 为零错误；四种 dtype 的位模式测试通过。详细误差、容差和实验边界见 [验收记录](docs/phase1-validation.md)。
-
-GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写入到 leader TMA store 之间的组内发布顺序，正式样例为两个 consumer 各增加 proxy fence 与组内 barrier。原件保留在 [kernel.original.py](examples/gqa/kernel.original.py)。六次隔离实验中，原件三次数值失败、修正版三次通过，但六次 racecheck 都是零 hazards，因此不能只凭 sanitizer 判断数值正确。来源、许可证和修改细节见 [样例说明](examples/README.md)。
-
-## 实现方式与当前边界
+`budget` 是每次 launch 的事件上限，最大 65,536，先预留各点全部 E，再分配完整访问容量。完整前缀耗尽预算标为 `truncated`/`partial`；日志丢失不会被当作正常预算截断。零次到达表示“没有满足选择条件的观察到达”，不等于原语句绝对未执行。
 
 ```text
-原始源码 + 选点配置
-  → AST 定位，在临时副本插入采集宏
-  → 分别编译 baseline / instrumented，导出实际 IR 和 CUDA
-  → source 引擎核对源码作用域、前端 buffer 元数据及实际 launch 参数
-  → 运行并收集 printf 原始位模式
-  → 校验记录完整性、两版输入/输出一致性，保存产物
+capture/
+  run.json / monitor.json / source.json
+  points.json                  # 每个 launch 的观察点契约
+  records.jsonl                # 数据身份与原始 bits
+  baseline/                    # 无 monitor 的编译/执行
+  instrumented/                # 插入 monitor 后的编译/执行
+    source/                    # 原源码、驱动及实际构建副本
+    compiles/<id>/             # frontend/device IR、CUDA、编译信息、观察点
+    launches/<id>/             # before/after 参数及返回值元数据、二进制
+    execution.json             # build/compile/launch 清单
+    environment.json / process.json
+    stdout.log / stderr.log    # 原始设备日志和 sanitizer 信息
 ```
 
-数值 `run` 的完整 fragment 采集沿用 fragment→shared→同步→printf→同步；v2 scalar/local 在原作用域直接输出，不加集体同步。reviewed 引擎保留组内同步、operand fence 及原有 IR 布局门禁。新源码数值路径没有新增 lowering pass 或指令，没有修改安装的 TileLang。访问 `trace` 的 Python IR 转换见前述说明。原始源码不覆盖，编译缓存禁用，导出实际编译对象的产物。
+两版分别编译运行，逐 launch 比较输入、调用后参数和返回值。保留 dtype、storage 别名、offset 和 stride；不通过 clone 传参破坏原 kernel 的 alias。IR/CUDA 原样导出供查看，不用于数值采集准入。没有 reference 时数值状态为 `not_checked`。
 
-当前限制：
+`run` 退出码：完整采集 **0**，完整采集但 driver 数值检查失败 **2**，预算截断或配置点未被 launch **3**，执行/证据/同步失败 **1**。失败产物保留，partial 不会标成完整通过。
 
-- source 引擎支持前述普通 CTA 源码作用域，不保证任意 kernel 可采集；reviewed 引擎和 trace 仍受四个样例的固定契约限制。
-- 对象和控制流支持范围取决于上述配置版本；group/pipeline 的新协作策略及多 launch 尚未开放。
-- 一次采集最多 65,536 个 tile 元素或 v2 事件（含见证），设备 printf FIFO 至少 64 MiB；v2 预算使用静态保守上界，可能先于实际记录数达到上限。
-- monitor 会增加打印、寄存器等开销；fragment 路径还增加 shared memory 和同步，插桩程序不能代表原程序性能。
-- 访问观察限于表中已审阅位置；任意数据相关 gather 索引、自动根因诊断和交互式报告尚未实现。reference 由用户提供，不自动生成。
+## 用 reference 分析
 
-## 开发与审阅记录
+```bash
+python -m tilelang_debugger analyze artifacts/my-capture \
+  --reference /path/to/reference.py --output artifacts/my-analysis
+```
 
-打印策略采用[统一嵌套控制流系统设计](docs/observation-strategy-design.md)。首批 scalar/local 实施见[具体方案](docs/observation-implementation-plan.md)、[独立方案审阅](docs/reviews/observation-implementation-review.md)、[独立代码审阅](docs/reviews/observation-code-review.md)和[验证记录](docs/observation-validation.md)。系统设计中的后续 group/pipeline 能力不等同于当前支持清单。
+分析只需 CPU 与 PyTorch，不加载 TileLang、不重跑 kernel。先复核原日志、源码及编译产物、launch 身份、快照和哈希，再调用用户提供的 `reference(inputs, points)`。每个 launch 单独调用，返回 `points`、`arguments_after`、`outputs` 三部分，覆盖全部观察点、传入参数和返回值。
 
-后续控制流按[统一源码模型与组件设计](docs/source-control-flow-design.md)推进：循环属性、参与域、动态访问身份和提前退出的目标统一建模，打印与覆盖证明分别处理。本次已完成保持行为的目录拆分，详情见[重构验证](docs/component-refactor-validation.md)；Group/Pipelined、动态循环及提前退出尚未因此开放。
+点规格为 `{"schema": 3, "key": "execution", "dtype": "float32", "samples": [...], "atol": 1e-5, "rtol": 1e-5}`。每个样本含 `thread/visit/coordinates/ordinals/index/value`；使用 `key: logical` 时省略 `thread/visit`，其余坐标须足以唯一标识期望值。期望键集合由 reference 独立生成，不从已收到样本缩小范围。
+
+参数和返回 tensor 规格为 `{"tensor": expected_cpu_tensor, "atol": ..., "rtol": ...}`，scalar 参数对应 Python scalar。整数要求同 dtype、零容差，精确到 64 位；浮点按 `abs(a-e) <= atol + rtol*abs(e)` 比较，NaN 不匹配。完整例子见 [reference.py](examples/unified/reference.py) 和 [advanced_reference.py](examples/unified/advanced_reference.py)。
+
+产物包括 `analysis.json`、`report.md`、逐元素 `elements.jsonl`、reference 副本和 `evidence.json`。全部匹配退出 0，数值不同或 partial 分析退出 2，证据/interface 异常退出 1。reference 是用户授权执行的 Python 代码，不自动生成，也不是沙箱。
+
+## 示例与验证
+
+[统一小测例](examples/unified/README.md) 覆盖嵌套循环/分支、线程、内存、dtype、参数和运行身份。[TileOPs 示例](examples/tileops/README.md) 直接使用固定上游 checkout 中的 pool、indices、RoPE、Softmax、RMS kernel，产品不按这些名字分支。
+
+```bash
+python tests/validate_unified.py --output artifacts/core --sanitizer racecheck
+python tests/validate_unified_advanced.py --output artifacts/advanced --sanitizer synccheck
+python tests/validate_unified_advanced.py --types --output artifacts/types
+python tests/validate_unified_pipeline_copy.py --output artifacts/pipeline --mode mixed
+python tests/validate_unified_tileops.py --tileops /path/to/TileOPs \
+  --output artifacts/tileops --sanitizer racecheck
+python -m unittest discover -s tests -p test_unified.py -v
+```
+
+最终安装包已通过独立验收：**99 项 CPU/TIR 测试、102 次完整 schema 3 采集、4 次预期预算截断、10 次预期拒绝，以及 7 次旧例回归**。独立复算包括原始日志、reference、证据扰动和 reader 语义；截断与拒绝不计为完整采集通过。方案、命令、sanitizer 范围及安装包 SHA 见[本轮记录](docs/unified-capture-validation.md)。
+
+## 兼容入口与访问观察
+
+旧 schema 1/2 数值配置保持兼容；旧 GELU、Sum、GEMM、GQA 的受审入口使用 `--engine reviewed`，该入口和 `trace` 继续保留原样例契约。旧格式及数值说明见[源码引擎记录](docs/generic-kernel-validation.md)、[嵌套采集记录](docs/observation-validation.md)、[阶段 1](docs/phase1-validation.md)及[reference 方案](docs/phase3-plan.md)。
+
+```bash
+python -m tilelang_debugger run examples/gqa/run.py --engine reviewed \
+  --monitor examples/gqa/monitor.json --output artifacts/gqa
+python -m tilelang_debugger trace examples/sum/run.py \
+  --access examples/sum/access.json --output artifacts/sum-access --sanitizer memcheck
+```
+
+`trace` 观察原访存的 runtime 索引、边界掩码和 TMA 实参，使用已有 Python IR 日志转换；它与 schema 3 的源码数值打印是独立路径。本轮没有将访问 trace 泛化到任意 kernel。支持位置及物理含义见[第四步验证](docs/phase4-validation.md)。原 GQA 输出同步修正及实验边界见[样例说明](examples/README.md)。
+
+## 当前边界
+
+- 自动 `Pipelined(num_stages=...)` 支持；手写 `order/stage/sync/group` 调度数组需要专用适配，当前明确拒绝。
+- while、break、continue 保留原语义；固定前端的条件/嵌套/value return 属于 Python 构建控制，不能冒充 GPU early return。当前只接受 kernel 末尾 bare return。loop-else 和未知作用域也明确诊断。
+- 协作 ready/uniform、组内 barrier 保留是用户契约；不自动证明异步完成、任意分支一致性或跨 block 快照。
+- 运行要求静态 Buffer 形状、contiguous CUDA tensor、顺序 default-stream 调用；不支持 CUDA Graph、跨 stream 并发采集。零维 tensor 的快照可用，但当前 TileLang 基线无法编译零维 tensor 参数，未宣称 kernel 支持。
+- 打印、shared 中转和同步会影响调度与性能；采集结果不代表原程序性能。FP8、自动根因诊断和交互式报告尚未提供。
+
+## 文件组织
 
 ```text
 src/tilelang_debugger/
-  source_analysis/      源码规范化、位置、绑定和控制作用域分析
-  instrumentation/      根据分析结果插入打印调用、别名和见证
-  emitters/             实际打印、原位编码和协作同步实现
-  protocols/            记录协议、解码、完整性及覆盖检查
-  runtime/              包导入及临时 hook 生命周期
-  capture_state.py      tile/samples 共用的 worker session
-  source_capture.py     编译、执行与证据调度
-  analysis.py           tile reference 分析
-  sample_analysis.py    samples reference 对齐
-examples/               GELU、Sum、GEMM、GQA 及选点配置
-tests/                  CPU/TIR 测试、GPU 验收与保真测试
-experiments/            T.print 同步、GQA 输出同步的隔离实验
-docs/                   实施方案、验证结果与独立审阅记录
-artifacts/              本地运行产物，不提交到 Git
+  source_analysis/       源码位置、绑定、统一控制流与适配器
+  instrumentation/       按模型原位插入观察、计数器及循环别名
+  emitters/              按真实对象选择打印与协作策略
+  protocols/             CPU 解码、身份和完整性检查
+  runtime/               临时 hook、build/compile/launch、快照与证据
+  unified_analysis.py    多 launch 的用户 reference 对齐
+examples/                原四例、TileOPs 接入、统一机制小测例
+tests/                   CPU/TIR 测试和 H200 验收脚本
+experiments/             隔离机制实验
+docs/                    方案、验证结果和独立审阅
+artifacts/               本地产物，不提交 Git
 ```
 
-原 `scopes.py`、`source_instrument.py`、`monitor.py`、`sample_monitor.py`、`records.py`、`sample_records.py` 保留兼容入口；已有脚本和已保存的插桩源码继续可导入。固定 reviewed 引擎的 `instrument.py`／IR 门禁保持原实现。新增通用能力按上述组件边界落地，离线协议解析不加载打印器或 GPU 运行时。
-
-安装本项目后可运行：
-
-```bash
-# 不需要 GPU 或 TileLang
-python -m unittest discover -s tests -p test_cpu.py -v
-python -m unittest discover -s tests -p test_evidence.py -v
-python -m unittest discover -s tests -p test_numerics.py -v
-python -m unittest discover -s tests -p test_access.py -v
-python -m unittest discover -s tests -p test_source_engine.py -v
-python -m unittest discover -s tests -p test_scopes.py -v
-
-# 需要 PyTorch，CPU 即可；不加载 TileLang
-python -m unittest discover -s tests -p test_analysis.py -v
-
-# 需要真实 TileLang/TVM，但测试本身不 launch GPU
-python -m unittest discover -s tests -p test_ir.py -v
-
-# 先在 H200 生成 GQA trace，再只用 CPU 检查真实 host/device IR 及拒绝负例
-TLACC_FIXTURE=artifacts/gqa-access-001 python -m unittest discover -s tests -p test_access_ir.py -v
-
-# 访问观察五条路径；依次把 tool 换成 synccheck、memcheck（输出目录须不同）
-CUDA_VISIBLE_DEVICES=0 python tests/validate_access.py \
-  --output artifacts/access-racecheck --sanitizer racecheck
-CUDA_VISIBLE_DEVICES=0 python experiments/access_protocol_probe.py \
-  --output artifacts/access-protocol
-
-# 完整 CPU 回归按 suite 隔离；analysis 测试要求从未导入 TileLang
-python tests/run_cpu.py --output artifacts/cpu-regression \
-  --access-fixture artifacts/gqa-access-001
-
-# H200 上重现 T.print 同步的八个正负对照
-CUDA_VISIBLE_DEVICES=0 python tests/validate_print_probe.py \
-  --output artifacts/print-regression
-```
-
-- [阶段 1 方案](docs/phase1-plan.md)
-- [第三轮独立代码复审：PASS](docs/reviews/phase1-code-review-v3.md)
-- [最终独立验收复核：PASS](docs/reviews/phase1-acceptance-review.md)
-- [全部审阅记录](docs/reviews)，保留前两轮问题及修复过程
-- [第三步实施方案](docs/phase3-plan.md)与[独立设计审阅](docs/reviews/phase3-design-review-v1.md)
-- [第三步独立代码复审：PASS](docs/reviews/phase3-code-review-v2.md)与[CPU/H200验证记录](docs/phase3-validation.md)
-
-- [第四步方案](docs/phase4-plan.md)与[第三轮独立设计审阅：PASS](docs/reviews/phase4-design-review-v3.md)
-- [第四步第二轮独立代码复审：PASS](docs/reviews/phase4-code-review-v2.md)
-- [第四步最终独立验收复核：PASS](docs/reviews/phase4-acceptance-review.md)
-- [第四步验证记录](docs/phase4-validation.md)；各轮代码审阅保存在 [docs/reviews](docs/reviews)。
-
-后续方向：扩展受审观察位置、分层采集和报告。硬件范围继续聚焦 NVIDIA H200。
+本轮[方案](docs/unified-capture-plan.md)、[设计审阅](docs/reviews/unified-capture-design-review.md)、[流水线协议修订审阅](docs/reviews/automatic-pipeline-root-design-review.md)、[核心代码审阅](docs/reviews/unified-core-review.md)、[运行与证据审阅](docs/reviews/unified-runtime-review.md)、[独立验收](docs/reviews/unified-acceptance-review.md)。历史记录保留在 [docs/reviews](docs/reviews)。

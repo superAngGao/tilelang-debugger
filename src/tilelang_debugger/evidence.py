@@ -44,6 +44,9 @@ def verify_capture(folder, sanitizer=None):
     if sanitizer not in (None, "racecheck", "synccheck"):
         raise ValueError("unknown sanitizer mode")
     run = read(folder / "run.json")
+    if run.get('schema') == 'source-unified-v3':
+        from .runtime.unified_evidence import verify
+        return verify(folder, sanitizer)
     if run.get("status") != "passed" or run.get("sanitizer") != sanitizer or run.get("inputs_equal") is not True or run.get("outputs_bitwise_equal") is not True:
         raise ValueError("capture was not successful under the requested sanitizer mode")
     versions, numerical = [], []
@@ -90,6 +93,8 @@ def verify_capture(folder, sanitizer=None):
 
 def verify_success(folder, sanitizer=None):
     points = verify_capture(folder, sanitizer)
+    if read(folder / 'run.json').get('status') != 'passed':
+        raise ValueError('partial capture is not a successful complete capture')
     if any(read(folder / mode / "reference.json")["passed"] is not True for mode in ("baseline", "instrumented")):
         raise ValueError("independent output reference failed")
     return points

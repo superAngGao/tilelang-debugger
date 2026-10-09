@@ -171,6 +171,9 @@ def run(driver, config_file, output, timeout=240, sanitizer=None, *, source_path
     from .source import load
     from .evidence import reference_status, verify_capture
     source, config, provenance = load(config_file, source_path)
+    if config.get('schema') == 3:
+        from .runtime.unified_capture import run as unified_run
+        return unified_run(driver, config_file, output, timeout, sanitizer, source_path=source_path, driver_args=driver_args)
     points = prepare(source, config)
     driver, output = Path(driver).resolve(), Path(output).resolve()
     driver_bytes = driver.read_bytes()
