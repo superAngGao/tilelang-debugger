@@ -9,7 +9,7 @@ import sys
 import types
 import uuid
 
-from .evidence import read, verify_capture
+from .evidence import read, verify_capture, reference_status
 from .numerics import compare, tensor_data
 from .records import value
 
@@ -119,7 +119,7 @@ def analyze(capture, reference, output):
         (output / "reference.py").write_bytes(provider_source)
         summary.update(run_id=run["run_id"], provider=dict(path=str(reference), sha256=hashlib.sha256(provider_source).hexdigest()),
                        environment=dict(python=sys.version, platform=platform.platform(), torch=torch.__version__),
-                       capture_numerical_status="passed" if all(read(capture / m / "reference.json")["passed"] for m in ("baseline", "instrumented")) else "failed")
+                       capture_numerical_status=reference_status([read(capture / m / "reference.json") for m in ("baseline", "instrumented")], run.get("schema", 1)))
         save(output / "evidence.json", evidence)
         with load_provider(provider_source, output / "reference.py") as provider:
             bundle = provider(tuple(t.clone() for t in inputs), copy.deepcopy(points))

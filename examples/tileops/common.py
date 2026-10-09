@@ -125,7 +125,8 @@ def run_example(example, build, reference):
     if len(candidates) != 1:
         parser.error("unknown case for this example")
     case = candidates[0]
-    folder = Path(args.output).resolve()
+    capture_folder = Path(os.environ["TLDBG_OUTPUT"]) if os.environ.get("TLDBG_OUTPUT") else None
+    folder = capture_folder / "example" if capture_folder else Path(args.output).resolve()
     folder.mkdir(parents=True, exist_ok=False)
     save(folder / "result.json", dict(status="running", case=case))
     try:
@@ -163,13 +164,17 @@ def run_example(example, build, reference):
             padding_ok = bool(torch.all(actual[:, case["N"]:] == 0))
         save(folder / "comparison.json", comparison)
         (folder / "elements.jsonl").write_text("".join(json.dumps(r, allow_nan=False) + "\n" for r in rows))
+        worker_mode = json.loads((capture_folder / "request.json").read_text())["mode"] if capture_folder else None
         result = dict(status="passed" if comparison["passed"] and padding_ok else "failed", case=case,
                       numerical_status="passed" if comparison["passed"] else "failed", padding_zero=padding_ok,
-                      debugger_status="not_run", instrumented=False)
+                      debugger_status="worker_completed_pending_capture_validation" if capture_folder else "not_run",
+                      instrumented=worker_mode == "instrumented", worker_mode=worker_mode)
         save(folder / "result.json", result)
+        if capture_folder:
+            save(capture_folder / "reference.json", dict(passed=result["status"] == "passed", comparison=comparison, padding_zero=padding_ok))
         save(folder / "files.json", {p.name: sha(p) for p in folder.iterdir() if p.is_file() and p.name != "files.json"})
         print(json.dumps(result), flush=True)
-        return 0 if result["status"] == "passed" else 1
+        return 0 if capture_folder or result["status"] == "passed" else 1
     except Exception as exc:
         save(folder / "result.json", dict(status="failed", case=case, error=f"{type(exc).__name__}: {exc}"))
         raise

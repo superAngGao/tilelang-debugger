@@ -38,7 +38,7 @@ def main():
             contracts["gelu"]["driver_sha256"] = [instrument.digest(driver.read_bytes())]
             # This only authorizes the reviewed test driver's reference expression in this process.
             # Kernel, compile config, gate, monitor and worker behaviour are untouched.
-            argv = ["tldbg", "run", str(driver), "--monitor", str(ROOT / "examples/gelu/monitor.json"),
+            argv = ["tldbg", "run", str(driver), "--engine", "reviewed", "--monitor", str(ROOT / "examples/gelu/monitor.json"),
                     "--output", str(output / "capture"), "--sanitizer", "racecheck", "--timeout", "360"]
             stdout = io.StringIO()
             with patch.object(instrument, "contracts", return_value=contracts), patch("sys.argv", argv), contextlib.redirect_stdout(stdout):

@@ -11,6 +11,21 @@ def read(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def reference_status(references, schema=1):
+    values = []
+    for ref in references:
+        passed = ref.get("passed")
+        if type(passed) is bool:
+            values.append(passed)
+        elif schema == "source-capture-v1" and ref == {"status": "not_provided", "passed": None}:
+            values.append(None)
+        else:
+            raise ValueError("missing or invalid output reference result")
+    if any(v is False for v in values):
+        return "failed"
+    return "not_checked" if any(v is None for v in values) else "passed"
+
+
 def snapshots(folder, prefix):
     metadata = read(folder / f"{prefix}.json")
     if not isinstance(metadata, list) or not metadata:
@@ -41,10 +56,7 @@ def verify_capture(folder, sanitizer=None):
             raise ValueError("worker's pre-launch gate did not pass")
         if read(worker / "process.json") != dict(returncode=0, timeout=False):
             raise ValueError("worker process failed or timed out")
-        passed = read(worker / "reference.json").get("passed")
-        if type(passed) is not bool:
-            raise ValueError("missing or invalid output reference result")
-        numerical.append(passed)
+        numerical.append(read(worker / "reference.json"))
         if sanitizer:
             command = read(worker / "command.json")
             if command[:3] != ["compute-sanitizer", "--tool", sanitizer]:
@@ -56,7 +68,8 @@ def verify_capture(folder, sanitizer=None):
         versions.append((snapshots(worker, "inputs"), snapshots(worker, "outputs")))
     if versions[0] != versions[1]:
         raise ValueError("persisted baseline/instrumented tensor data differs")
-    if "numerical_status" in run and run["numerical_status"] != ("passed" if all(numerical) else "failed"):
+    expected_status = reference_status(numerical, run.get("schema", 1))
+    if "numerical_status" in run and run["numerical_status"] != expected_status:
         raise ValueError("numeric status differs from worker references")
     points = read(folder / "points.json")
     if not points or points != read(folder / "instrumented" / "points.json"):

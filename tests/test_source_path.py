@@ -60,7 +60,7 @@ class SourcePathTests(unittest.TestCase):
 
     def test_cli_forwards_source_in_both_commands(self):
         for command, flag, module in [('run', '--monitor', capture), ('trace', '--access', access)]:
-            with patch('sys.argv', ['tilelang-debugger', command, 'driver.py', flag, 'cfg.json', '--output', 'out', '--source', 'other name.py']), \
+            with patch('sys.argv', ['tilelang-debugger', command, 'driver.py', flag, 'cfg.json', '--output', 'out', '--source', 'other name.py'] + (['--engine', 'reviewed'] if command == 'run' else [])), \
                  patch.object(module, 'run', return_value={'numerical_status': 'passed'}) as run:
                 cli.main()
             self.assertEqual(run.call_args.kwargs, dict(source_path='other name.py'))

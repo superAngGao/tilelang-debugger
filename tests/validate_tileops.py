@@ -1,4 +1,7 @@
-"""H200 upstream baselines and honest public-CLI readiness probes."""
+"""H200 upstream baselines and historical reviewed-engine admission probes.
+
+Use validate_source_engine.py for real source-engine capture acceptance.
+"""
 import argparse
 import json
 import os
@@ -156,6 +159,8 @@ def main():
             save(config_path, config)
             cmd = [sys.executable, "-m", "tilelang_debugger", command, str(driver), f"--{kind}",
                    str(config_path), "--source", config["source"], "--output", str(folder / "capture")]
+            if command == "run":
+                cmd += ["--engine", "reviewed"]
             process = execute(cmd, folder, env, args.timeout)
             status = debugger_status(process, (folder / "stderr.log").read_text(), driver, command)
             probes.append(dict(example=example, command=command, status=status, process=process,

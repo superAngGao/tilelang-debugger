@@ -2,9 +2,20 @@
 
 这里直接加载指定 TileOPs checkout 的源码，不保存改写后的 `kernel.py`。首批包括 Softmax、RMSNorm、RoPE，共 21 个 shape/path/dtype 组合。测试版本与参数见 [manifest.json](manifest.json)，版本记录不用于用户 kernel 准入。
 
-**当前这些是数值基线和调试接入测试。debugger 的 `run` / `trace` 已接受 `--source` 指定上游文件，但这些源码/driver 仍不满足现有固定契约；这里的基线通过不表示已取得中间 tile 或 runtime 访问记录。**
+**数值采集使用默认 source 引擎，不受固定源码/driver 契约限制。** `capture.py` 直接导入上游源码，按当前行号插入 Python 打印宏，再运行独立 CPU reference 分析。Softmax/RMSNorm 采集中间 fragment；RoPE 仅采输入 x。外部 kernel 的 runtime 访问索引和 RoPE 中间 scalar 尚未实现。
 
-2026-10-09 H200 实测：21 组基线、9 次 sanitizer 检查通过；6 次调试入口探测为 unsupported，严格验收非零退出。详见[验证记录](../../docs/tileops-integration-validation.md)。
+此前 21 组基线、9 次 sanitizer、6 次入口拒绝属于历史记录，见[原验证记录](../../docs/tileops-integration-validation.md)。新源码引擎单独验收，不能用历史 baseline 代替。
+
+新源码引擎 21 组基础采集及 6 组 sanitizer 采集均通过选点/输出 reference 比较，见[本轮验证记录](../../docs/generic-kernel-validation.md)。
+
+```bash
+python examples/tileops/capture.py --tileops /path/to/TileOPs \
+  --case softmax-tiled-float32 --output artifacts/softmax-capture --sanitizer racecheck
+python tests/validate_source_engine.py --tileops /path/to/TileOPs \
+  --output artifacts/source-matrix --sanitizers
+```
+
+新单例产物含实际 CLI 配置 `monitor.json`、`capture/` 的两版编译与完整记录、`analysis/report.md` 的中间点/输出比较。无数值匹配时仍生成分析报告并退出 2；执行异常或记录不完整失败。fixture `capture_reference.py` 按真实输入提供 reference，不属于产品自动推导。
 
 ## 运行
 
@@ -35,9 +46,9 @@ python tests/validate_tileops.py --tileops /path/to/TileOPs \
 | `rms_norm/` | N=256、257；FP16/BF16/FP32 | sumsq、rrms、输出 fragment、weight 广播访问 |
 | `rope/` | 32×64、16×128；FP16/BF16/FP32 | x/cos/sin/配对元素读取、y 写入；原 kernel 无 fragment |
 
-`monitor.json` / `access.json` 的 `tileops-observation-intent-v1` 是**测试观察点意图**，不是现有 CLI 可执行配置。运行时按 factory、Python 分支及完整 AST 语句唯一定位，生成 `observations.json`，保留当前真实行号与原循环上下文。歧义或源码语句变化会明确失败；空行不会影响定位。循环次数从 1 起。源码锚点需要修改时，修改测试配置即可。
+例子中的 `monitor.json` / `access.json` 是**测试观察点意图**，不是直接传给 CLI 的配置。`capture.py` 按 factory、Python 分支及 AST 语句生成实际 `source/points` 配置；工具本身只使用用户行号，不按例子匹配。歧义或源码语句变化需更新 fixture 锚点；空行不影响定位。循环次数从 1 起。`access.json` 仍只是外部访问观察计划。
 
-## 产物与验收含义
+## 历史基线与 reviewed 入口探测
 
 单例目录包含：
 
@@ -48,7 +59,7 @@ python tests/validate_tileops.py --tileops /path/to/TileOPs \
 - `comparison.json`、`elements.jsonl`：数值汇总及逐元素比较；`result.json` 保留 padding 检查。
 - `observations.json`：计划源码观察点，标记 `planned_not_captured`。
 
-矩阵还保存每个独立进程的命令、stdout/stderr、退出码、超时，以及每类 `run` 和 `trace` 的实际 CLI 接入探测。探测把真实上游路径传给 `--source`，从观察意图生成现有字段格式的请求；只把真实源码/driver 契约拒绝分类为 `unsupported`，缺失文件及其他错误均为 `failed`。RoPE 的 run 请求是 y 全局 buffer 的准入探测，不声称无 fragment 的采集语义已经支持。旧证据中发生于 sibling 文件缺失的限制已修正。
+旧脚本 `validate_tileops.py` 保留基线和历史契约探测，数值探测显式指定 `--engine reviewed`；其 unsupported 不代表新 source 引擎不支持。新引擎验收请使用上方 `validate_source_engine.py`。旧 RoPE y 请求仅是契约准入负例，不代表支持全局输出快照。
 
 `--probes-only` 可只复测入口，不重跑已通过的基线；因没有基线证据，该模式不会通过完整验收，当前返回非零。`--sanitizers` 为每类一例追加 memcheck、racecheck、synccheck，缺少工具或错误摘要不算通过。
 

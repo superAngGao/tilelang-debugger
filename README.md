@@ -2,31 +2,55 @@
 
 面向 **NVIDIA H200** 的 TileLang 源码定点调试原型：选择源码行、buffer、block 和循环迭代，采集该位置的完整 tile，并保留插桩前后的 IR 与 CUDA，帮助核对中间计算结果。
 
-**当前能力：源码定点数值采集、用户 reference 离线分析，以及运行时访问索引与边界观察。** 支持范围是本仓库 GELU、Sum、GEMM、GQA 四个样例的固定构建参数和已审阅观察位置。当前以命令行和文件产物为主，尚未支持任意用户 kernel 或交互式调试界面。各阶段验证和独立审阅见文末链接。
+**当前能力：源码定点数值采集、用户 reference 离线分析，以及受审样例的运行时访问索引观察。** `run` 默认通过 Python 源码插入打印宏，不再用用户源码、driver 或布局摘要作为准入白名单。源码引擎支持普通 CTA 的 fragment 和简单只读 global 输入；异步矩阵、warp-specialized 等已有样例使用 `--engine reviewed`。`trace` 仍限定在原受审样例范围，未随数值入口一起通用化。
 
-新增的 [TileOPs 外部示例](examples/tileops/README.md) 直接调用指定 checkout 的 Softmax、RMSNorm、RoPE，用于数值基线与真实调试接入测试。它们不增加产品白名单；当前外部模块接入仍是未完成项。示例基线成功与 debugger 采集成功分别记录，完整验收使用 `--require-debugger`。
+新增的 [TileOPs 外部示例](examples/tileops/README.md) 直接导入指定 checkout 的 Softmax、RMSNorm、RoPE。数值采集使用 `examples/tileops/capture.py`；Softmax/RMSNorm 比较中间 fragment，RoPE 当前只打印输入，不声称已采集其中间 scalar 或访问索引。例子和 reference 不属于产品准入规则。
 
-这批外部示例已在 H200 上通过 **21 组数值基线和 9 次 sanitizer 检查**；6 次公开 CLI 接入探测均为 `unsupported`，严格调试验收返回失败。具体范围、命令及证据见[验证记录](docs/tileops-integration-validation.md)。
+此前 **21 组数值基线、9 次 sanitizer 及 6 次入口拒绝**属于历史验证，见[原验证记录](docs/tileops-integration-validation.md)，不能代替新源码引擎的采集验收。新方案与独立设计审阅见[源码插桩方案](docs/generic-kernel-plan.md)和[设计复审](docs/reviews/generic-kernel-design-review-v3.md)。
+
+新源码引擎已完成 **27 组真实采集与 reference 分析、9 项接入/失败路径、64 项 CPU/TIR 测试**；还验证了真实错误计算和旧 GELU/GQA 回归。[最终独立验收通过](docs/reviews/generic-kernel-acceptance-review.md)；范围、命令和证据摘要见[源码引擎验证记录](docs/generic-kernel-validation.md)。
+
+## 普通用户 kernel 数值采集
+
+```bash
+python -m tilelang_debugger run /path/to/driver.py \
+  --source /path/to/package/my_kernel.py --monitor /path/to/monitor.json \
+  --output artifacts/my-capture --sanitizer racecheck \
+  -- --driver-option value
+```
+
+driver 按原模块名导入源码，保留包内相对导入。源码文件可与 driver 相同；原文件不修改。`--` 之后原样传给 driver。配置仍选择原始行号、buffer、block、循环次数；无需插入用户 API 或增加产品算子分支。
+
+选点须位于完整 CTA 执行位置，在 `T.Parallel` 循环之外；支持最多两层静态 `T.serial` / `T.Serial` / `range`，循环次数从 1 开始。暂不支持条件分支内、pipeline/ws 内、动态循环和 Parallel 内 scalar 点。构建时读取实际 buffer 和 launch 元数据，最多 8 点、65,536 元素。global 仅支持简单源码中无写入/别名的输入，且实参不能与其他输入共享 storage，不支持跨 block 输出快照。
+
+打印沿用 Python 层的 fragment→shared→同步→原位 printf→同步宏；编译由 TileLang 完成。工具不读取 layout、不解析 lowering 来定位寄存器；两版 IR/CUDA 原样导出供查看。打印会影响执行时间，采集通过不证明原算法或同步正确。
+
+每次独立编译/launch 一次，要求静态 Buffer 参数、非空 `out_idx` 和 contiguous CUDA tensor；多 launch、scalar 参数、in-place 暂不支持。两版输入/输出需逐位一致，记录必须完整。driver 没有 reference 时标为 `not_checked`，可再运行 `analyze --reference`；不会把未检查当成数值通过。
+
+```bash
+python examples/tileops/capture.py --tileops /path/to/TileOPs \
+  --case rms-n257-float16 --output artifacts/rms-capture --sanitizer racecheck
+```
 
 ## 指定源码文件
 
 `run` 和 `trace` 都接受用户指定的 `--source FILE`，不再要求输入文件名为 `kernel.py`，也不再寻找 driver 同目录的这个文件。
 
 ```bash
-python -m tilelang_debugger run examples/gelu/run.py \
+python -m tilelang_debugger run examples/gelu/run.py --engine reviewed \
   --source /path/to/gelu_impl.py --monitor examples/gelu/monitor.json \
   --output artifacts/gelu-custom-source
 ```
 
-`--source` 的相对路径基于当前工作目录；未指定时使用配置中的 `source`，其相对路径基于**配置文件所在目录**。显式参数优先。实际路径保存于 `source.json`、运行/观察点元数据及报告，原文件不会被修改。worker 中 `source/kernel.py` 是内部快照名称。
+`--source` 的相对路径基于当前工作目录；未指定时使用配置中的 `source`，其相对路径基于**配置文件所在目录**。显式参数优先。实际路径保存于 `source.json`、运行/观察点元数据及报告。source 引擎保存 `source/original.py` 和 `instrumented.py` 快照，但导入仍使用原文件路径；reviewed 引擎使用历史 `source/kernel.py` 快照。
 
-这项修改解决文件输入，**没有解除当前源码内容/driver 契约限制或实现外部包/JIT 的通用接入**。以上例子中 `gelu_impl.py` 可是已有 GELU 源码的改名文件；受审 driver 仍通过内部 `kernel` 模块加载快照。任意用户 driver 的 import 方式尚未通用化。TileOPs 接入探测现显式传入上游文件，在源码/driver 契约处报告 unsupported，缺失文件则判为错误。
+source 引擎要求 driver 实际执行或导入选定文件；加载了另一个安装版本会失败，不会寻找同目录 `kernel.py` 替代。reviewed 引擎继续保留历史源码/driver 契约，供已有受审样例回归。
 
 已在 H200 上验证改名、移目录和含空格路径，数值/访问采集各得到 4096 条记录，报告关联实际输入文件；详见[路径输入验证](docs/source-path-validation.md)。
 
 ## 现在能看到什么
 
-以下是仓库自带 `monitor.json` 已经实际验证的采集内容，均选择 block `(1, 0, 0)`：
+以下是原受审引擎（`run --engine reviewed`）已经验证的内容，均选择 block `(1, 0, 0)`：
 
 | 样例 | 观察位置与数据 | 用途 | 记录数 |
 | --- | --- | --- | ---: |
@@ -98,7 +122,7 @@ python -m pip install -e .
 ## 运行一次采集
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger run examples/gelu/run.py \
+CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger run examples/gelu/run.py --engine reviewed \
   --monitor examples/gelu/monitor.json \
   --output artifacts/gelu-001
 ```
@@ -121,7 +145,7 @@ CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger run examples/gelu/run.py \
 
 ## 如何选择源码位置
 
-配置中的行号指向**原始 `kernel.py`**，多行语句使用开始行。例如当前 GEMM 配置：
+配置中的行号指向**用户选定的原始源码文件**，多行语句使用开始行。例如 reviewed 引擎的 GEMM 配置：
 
 ```json
 {
@@ -139,12 +163,12 @@ CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger run examples/gelu/run.py \
 
 含义是：在原始第 113 行循环的**第 2 次执行**中，于第 116 行开始的语句执行完后，采集 block `(1,0,0)` 的 `c_local`。此处观察的是整个 ring dispatch 完成后的累加器。
 
-- `when`：语句的 `before` 或 `after`，具体取值必须符合该位置的受审配置。
+- `when`：语句的 `before` 或 `after`；reviewed 引擎另要求符合受审配置。
 - `iteration`：从 **1** 开始的执行序号；输出记录中的 `loops` 保存实际循环变量值，因此这里是 `[1]`，即 `ki=1`。
 - `block`：从 **0** 开始的三维 block 坐标。
-- `buffer`：原始源码中的变量名，工具在临时副本中处理作用域和重命名。
+- `buffer`：原始源码中的变量名。source 引擎直接引用它，不重命名用户 buffer。
 
-当前可在已审阅位置选择合法 block 和受支持的循环迭代。**不能仅修改行号就采集任意位置**：源码、驱动、观察位置、参与线程与布局受契约约束，无法匹配时会拒绝执行。修改 kernel 或扩展观察位置需要补充验证和审阅。
+source 引擎按前述源码作用域规则选择位置，修改源码不要求增加摘要契约；reviewed 引擎仍只接受受审位置、参数及同步协议。不能把两种引擎的支持范围混为一谈。
 
 ## 输出文件怎么读
 
@@ -278,17 +302,17 @@ GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写�
 原始源码 + 选点配置
   → AST 定位，在临时副本插入采集宏
   → 分别编译 baseline / instrumented，导出实际 IR 和 CUDA
-  → 检查插桩版本的同步、参与线程、元素映射与打印读取
+  → source 引擎核对源码作用域、前端 buffer 元数据及实际 launch 参数
   → 运行并收集 printf 原始位模式
   → 校验记录完整性、两版输入/输出一致性，保存产物
 ```
 
-数值 `run` 的采集宏沿用 TileLang 已有的 fragment→shared 搬运和 printf 机制，在内部搬运后及打印后安排组内同步；异步 accumulator 使用已有 operand-fence intrinsic。数值路径没有新增 lowering pass 或指令，也没有修改安装的 TileLang。访问 `trace` 的 Python IR 转换见前述说明。原始源码不被覆盖，编译缓存被禁用，导出的是实际编译对象的产物。
+数值 `run` 的采集宏沿用 TileLang 已有的 fragment→shared 搬运和 printf 机制，在内部搬运后及打印后同步。source 引擎使用全 CTA 同步；reviewed 引擎保留组内同步、operand fence 及原有 IR 布局门禁。数值路径没有新增 lowering pass 或指令，没有修改安装的 TileLang。访问 `trace` 的 Python IR 转换见前述说明。原始源码不覆盖，编译缓存禁用，导出实际编译对象的产物。
 
 当前限制：
 
-- 仅支持经过审阅的四个样例、固定构建参数、观察位置与布局；未知同步协议或布局会在 launch 前拒绝。
-- 数值采集对象为完整 fragment，暂不支持直接 shared buffer 数值采集、`T.Pipelined` / `T.unroll` 内选点或多 launch；访问 trace 可查看上述固定 shared 读写。
+- source 引擎支持前述普通 CTA 源码作用域，不保证任意 kernel 可采集；reviewed 引擎和 trace 仍受四个样例的固定契约限制。
+- source 数值对象为完整 fragment 或简单只读 global 输入，暂不支持直接 shared buffer、`T.Pipelined` / `T.unroll` 内选点或多 launch；访问 trace 可查看上述固定 shared 读写。
 - 一次采集最多 65,536 个元素，设备 printf FIFO 至少 64 MiB；仍以实际记录完整性检查为准。
 - monitor 会增加 shared memory、寄存器和同步开销，插桩程序不能代表原程序性能。
 - 访问观察限于表中已审阅位置；任意数据相关 gather 索引、自动根因诊断和交互式报告尚未实现。reference 由用户提供，不自动生成。
@@ -312,6 +336,7 @@ python -m unittest discover -s tests -p test_cpu.py -v
 python -m unittest discover -s tests -p test_evidence.py -v
 python -m unittest discover -s tests -p test_numerics.py -v
 python -m unittest discover -s tests -p test_access.py -v
+python -m unittest discover -s tests -p test_source_engine.py -v
 
 # 需要 PyTorch，CPU 即可；不加载 TileLang
 python -m unittest discover -s tests -p test_analysis.py -v
