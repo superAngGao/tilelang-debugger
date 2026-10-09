@@ -7,6 +7,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run")
     run.add_argument("driver")
+    run.add_argument("--source", help="Kernel source file (relative to cwd); defaults to config source relative to config directory")
     run.add_argument("--monitor", required=True)
     run.add_argument("--output", required=True)
     run.add_argument("--timeout", type=int, default=240)
@@ -19,6 +20,7 @@ def main():
     worker.add_argument("folder")
     trace = commands.add_parser("trace", help="Trace runtime access operands at reviewed source lines")
     trace.add_argument("driver")
+    trace.add_argument("--source", help="Kernel source file (relative to cwd); defaults to config source relative to config directory")
     trace.add_argument("--access", required=True)
     trace.add_argument("--output", required=True)
     trace.add_argument("--timeout", type=int, default=240)
@@ -31,7 +33,7 @@ def main():
         if args.command == "_access_worker":
             access.worker(args.folder)
         else:
-            result = access.run(args.driver, args.access, args.output, args.timeout, args.sanitizer)
+            result = access.run(args.driver, args.access, args.output, args.timeout, args.sanitizer, source_path=args.source)
             print(json.dumps(result, indent=2))
             if result["numerical_status"] == "failed":
                 raise SystemExit(2)
@@ -47,7 +49,7 @@ def main():
     if args.command == "_worker":
         capture.worker(args.folder)
     else:
-        result = capture.run(args.driver, args.monitor, args.output, args.timeout, args.sanitizer)
+        result = capture.run(args.driver, args.monitor, args.output, args.timeout, args.sanitizer, source_path=args.source)
         print(json.dumps(result, indent=2))
         if result["numerical_status"] == "failed":
             raise SystemExit(2)

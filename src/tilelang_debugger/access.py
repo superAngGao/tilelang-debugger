@@ -73,17 +73,20 @@ def worker(folder):
     save_json(folder/"execution.json",dict(compiles=compiles,launches=launches,restored=tilelang.compile is original_compile))
 
 
-def run(driver,config_file,output,timeout=240,sanitizer=None):
+def run(driver,config_file,output,timeout=240,sanitizer=None,*,source_path=None):
     if sys.platform != "linux":
         raise RuntimeError("access workers require Linux/H200")
     driver, output = Path(driver).resolve(), Path(output).resolve()
-    source = driver.with_name("kernel.py").read_text(encoding="utf-8")
-    config = json.loads(Path(config_file).read_text(encoding="utf-8"))
+    from .source import load
+    source, config, provenance = load(config_file, source_path)
     case, contract, points = prepare(source,driver.read_bytes(),config)
+    for point in points:
+        point["source_path"] = provenance["source_path"]
     output.mkdir(parents=True,exist_ok=False)
     run_id = uuid.uuid4().hex
-    info = dict(schema="TLACC1",run_id=run_id,case=case,source_sha256=digest(source.encode()),driver_sha256=digest(driver.read_bytes()),sanitizer=sanitizer)
+    info = dict(schema="TLACC1",run_id=run_id,case=case,source_sha256=digest(source.encode()),driver_sha256=digest(driver.read_bytes()),sanitizer=sanitizer,source_path=provenance["source_path"])
     save_json(output/"access.json",config)
+    save_json(output/"source.json",provenance)
     save_json(output/"run.json",dict(info,status="running"))
     try:
         for mode in ("baseline","instrumented"):
@@ -91,7 +94,7 @@ def run(driver,config_file,output,timeout=240,sanitizer=None):
             (folder/"source").mkdir(parents=True)
             (folder/"source/run.py").write_bytes(driver.read_bytes())
             (folder/"source/kernel.py").write_text(source,encoding="utf-8")
-            save_json(folder/"request.json",dict(mode=mode,case=case,points=points,contract=contract))
+            save_json(folder/"request.json",dict(mode=mode,case=case,points=points,contract=contract,source_path=provenance["source_path"]))
             subprocess_worker(folder,timeout,sanitizer,"_access_worker")
         for kind in ("inputs","outputs"):
             if json.loads((output/f"baseline/{kind}.json").read_text()) != json.loads((output/f"instrumented/{kind}.json").read_text()):

@@ -84,9 +84,10 @@ def report(records,points,descriptors):
     lines=["# Access trace", "", "完整采集；索引来自 GPU 上原访问表达式。记录不证明内存请求完成。", "", "| 源码行 | 操作 | 记录 | active | masked |", "| --- | --- | --- | --- | --- |"]
     for p in points:
         rs=[r for r in records if r["site"]==p["site"]]
-        item=dict(site=p["site"],line=p["line"],operation=p["operation"],records=len(rs),active=sum(r["active"] for r in rs),masked=sum(not r["active"] for r in rs),out_of_bounds=sum(r.get("bounds")=="out_of_bounds" for r in rs))
+        item=dict(site=p["site"],line=p["line"],source_path=p.get("source_path", "kernel.py"),operation=p["operation"],records=len(rs),active=sum(r["active"] for r in rs),masked=sum(not r["active"] for r in rs),out_of_bounds=sum(r.get("bounds")=="out_of_bounds" for r in rs))
         result["points"].append(item)
-        lines.append(f"| {p['line']} | {p['operation']} {p['buffer']} | {len(rs)} | {item['active']} | {item['masked']} |")
+        source_label = item['source_path'].replace('|', '\\|').replace('\n', ' ')
+        lines.append(f"| {source_label}:{p['line']} | {p['operation']} {p['buffer']} | {len(rs)} | {item['active']} | {item['masked']} |")
         if p["operation"]=="transfer":
             matches=[d for d in descriptors if d["name"]==p["descriptor"]]
             if len(matches)!=1:raise ValueError("missing/ambiguous descriptor binding")

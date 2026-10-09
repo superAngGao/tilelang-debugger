@@ -2,7 +2,7 @@
 
 这里直接加载指定 TileOPs checkout 的源码，不保存改写后的 `kernel.py`。首批包括 Softmax、RMSNorm、RoPE，共 21 个 shape/path/dtype 组合。测试版本与参数见 [manifest.json](manifest.json)，版本记录不用于用户 kernel 准入。
 
-**当前这些是数值基线和调试接入测试。现有 debugger 的 `run` / `trace` 尚不能加载这些外部模块；这里的基线通过不表示已取得中间 tile 或 runtime 访问记录。**
+**当前这些是数值基线和调试接入测试。debugger 的 `run` / `trace` 已接受 `--source` 指定上游文件，但这些源码/driver 仍不满足现有固定契约；这里的基线通过不表示已取得中间 tile 或 runtime 访问记录。**
 
 2026-10-09 H200 实测：21 组基线、9 次 sanitizer 检查通过；6 次调试入口探测为 unsupported，严格验收非零退出。详见[验证记录](../../docs/tileops-integration-validation.md)。
 
@@ -48,7 +48,9 @@ python tests/validate_tileops.py --tileops /path/to/TileOPs \
 - `comparison.json`、`elements.jsonl`：数值汇总及逐元素比较；`result.json` 保留 padding 检查。
 - `observations.json`：计划源码观察点，标记 `planned_not_captured`。
 
-矩阵还保存每个独立进程的命令、stdout/stderr、退出码、超时，以及每类 `run` 和 `trace` 的实际 CLI 接入探测。仅已确认的缺失 sibling `kernel.py` 入口限制分类为 `unsupported`；其他错误分类为 `failed`。`--sanitizers` 为每类一例追加 memcheck、racecheck、synccheck，缺少工具或错误摘要不算通过。
+矩阵还保存每个独立进程的命令、stdout/stderr、退出码、超时，以及每类 `run` 和 `trace` 的实际 CLI 接入探测。探测把真实上游路径传给 `--source`，从观察意图生成现有字段格式的请求；只把真实源码/driver 契约拒绝分类为 `unsupported`，缺失文件及其他错误均为 `failed`。RoPE 的 run 请求是 y 全局 buffer 的准入探测，不声称无 fragment 的采集语义已经支持。旧证据中发生于 sibling 文件缺失的限制已修正。
+
+`--probes-only` 可只复测入口，不重跑已通过的基线；因没有基线证据，该模式不会通过完整验收，当前返回非零。`--sanitizers` 为每类一例追加 memcheck、racecheck、synccheck，缺少工具或错误摘要不算通过。
 
 默认退出 0 表示所选数值基线通过且接入探测没有未解释的故障；`summary.json` 仍会明确保留 `debugger_status=unsupported`、`delivery_passed=false`。完整调试验收必须加 `--require-debugger`，当前预期退出非零，不能将该缺口包装成 PASS。
 

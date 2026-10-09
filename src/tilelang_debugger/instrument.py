@@ -59,8 +59,8 @@ def locate(source, point):
 
 
 def prepare(source, config, driver_bytes=None):
-    if set(config) != {"source", "points"} or config["source"] != "kernel.py":
-        raise Unsupported("config requires source: kernel.py and points")
+    if set(config) != {"source", "points"} or not isinstance(config["source"], str) or not config["source"].strip():
+        raise Unsupported("config requires a nonempty source path and points")
     if not isinstance(config["points"], list) or not 1 <= len(config["points"]) <= 8:
         raise Unsupported("select 1..8 observation points")
     source_hash = digest(source.encode("utf-8"))

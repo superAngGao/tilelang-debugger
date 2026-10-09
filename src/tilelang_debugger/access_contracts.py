@@ -28,8 +28,8 @@ RULES = {
 
 
 def prepare(source, driver, config):
-    if set(config) != {"source", "accesses"} or config["source"] != "kernel.py":
-        raise Unsupported("access config requires source: kernel.py and accesses")
+    if set(config) != {"source", "accesses"} or not isinstance(config["source"], str) or not config["source"].strip():
+        raise Unsupported("access config requires a nonempty source path and accesses")
     matches = [(name, c) for name, c in contracts().items()
                if digest(source.encode()) == c["source_sha256"] and digest(driver) in c["driver_sha256"]]
     if len(matches) != 1:

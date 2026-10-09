@@ -166,18 +166,21 @@ def subprocess_worker(folder, timeout, sanitizer=None, command_name="_worker"):
         raise RuntimeError(f"worker exited {status}; see {folder / 'stderr.log'}")
 
 
-def run(driver, config_file, output, timeout=240, sanitizer=None):
+def run(driver, config_file, output, timeout=240, sanitizer=None, *, source_path=None):
     if sys.platform != "linux":
         raise RuntimeError("GPU workers currently require Linux; CPU source/record tests also run on Windows")
     driver, output = Path(driver).resolve(), Path(output).resolve()
-    source_file = driver.with_name("kernel.py")
-    source = source_file.read_text(encoding="utf-8")
-    config = json.loads(Path(config_file).read_text(encoding="utf-8"))
+    from .source import load
+    source, config, provenance = load(config_file, source_path)
     contract, points = prepare(source, config, driver.read_bytes())
+    for point in points:
+        point["source_path"] = provenance["source_path"]
     output.mkdir(parents=True, exist_ok=False)
     run_id = uuid.uuid4().hex
     save_json(output / "monitor.json", config)
+    save_json(output / "source.json", provenance)
     save_json(output / "run.json", dict(schema=1, run_id=run_id, status="running", source_sha256=digest(source.encode()),
+                                       source_path=provenance["source_path"],
                                        driver_sha256=digest(driver.read_bytes()), sanitizer=sanitizer))
     try:
         for mode in ("baseline", "instrumented"):
@@ -197,7 +200,7 @@ def run(driver, config_file, output, timeout=240, sanitizer=None):
             else:
                 staged_source = source
             (stage / "kernel.py").write_text(staged_source, encoding="utf-8")
-            save_json(folder / "request.json", dict(mode=mode, points=points, contract=contract))
+            save_json(folder / "request.json", dict(mode=mode, points=points, contract=contract, source_path=provenance["source_path"]))
             subprocess_worker(folder, timeout, sanitizer)
         baseline_outputs = json.loads((output / "baseline" / "outputs.json").read_text())
         instrumented_outputs = json.loads((output / "instrumented" / "outputs.json").read_text())
@@ -212,10 +215,11 @@ def run(driver, config_file, output, timeout=240, sanitizer=None):
         if any(type(passed) is not bool for passed in numerical):
             raise ValueError("driver did not produce a valid output reference result")
         result = dict(schema=1, run_id=run_id, status="passed", records=len(records), inputs_equal=True, outputs_bitwise_equal=True,
+                      source_path=provenance["source_path"],
                       source_sha256=digest(source.encode()), driver_sha256=digest(driver.read_bytes()), sanitizer=sanitizer,
                       numerical_status="passed" if all(numerical) else "failed")
         save_json(output / "run.json", result)
         return result
     except Exception as exc:
-        save_json(output / "run.json", dict(schema=1, run_id=run_id, status="failed", sanitizer=sanitizer, error=str(exc)))
+        save_json(output / "run.json", dict(schema=1, run_id=run_id, status="failed", sanitizer=sanitizer, source_path=provenance["source_path"], error=str(exc)))
         raise

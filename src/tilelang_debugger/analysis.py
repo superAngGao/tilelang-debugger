@@ -81,7 +81,7 @@ def markdown(summary):
         lines += [f"## {cell(item['label'])}", "", f"实际 dtype：{item['actual_dtype']}；reference dtype：{item['expected_dtype']}；atol={item['atol']}，rtol={item['rtol']}。", ""]
         if item["kind"] == "point":
             p = item["source"]
-            lines += [f"原始 kernel.py 第 {p['line']} 行（{p['when']}），buffer `{cell(p['buffer'])}`，block {p['block']}，循环选择 {p['loops']}，原循环值 {p['loop_values']}。",
+            lines += [f"原始 {cell(p.get('source_path', 'kernel.py'))} 第 {p['line']} 行（{p['when']}），buffer `{cell(p['buffer'])}`，block {p['block']}，循环选择 {p['loops']}，原循环值 {p['loop_values']}。",
                       f"源码摘要：`{p['source_sha256']}`。", ""]
         if item["first_mismatches"]:
             lines += ["前 20 个不匹配元素（按逻辑索引排序）：", "", "| 坐标 | 实际值 | 参考值 | 绝对误差 | 分类 |", "| --- | ---: | ---: | ---: | --- |"]

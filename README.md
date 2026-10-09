@@ -8,6 +8,22 @@
 
 这批外部示例已在 H200 上通过 **21 组数值基线和 9 次 sanitizer 检查**；6 次公开 CLI 接入探测均为 `unsupported`，严格调试验收返回失败。具体范围、命令及证据见[验证记录](docs/tileops-integration-validation.md)。
 
+## 指定源码文件
+
+`run` 和 `trace` 都接受用户指定的 `--source FILE`，不再要求输入文件名为 `kernel.py`，也不再寻找 driver 同目录的这个文件。
+
+```bash
+python -m tilelang_debugger run examples/gelu/run.py \
+  --source /path/to/gelu_impl.py --monitor examples/gelu/monitor.json \
+  --output artifacts/gelu-custom-source
+```
+
+`--source` 的相对路径基于当前工作目录；未指定时使用配置中的 `source`，其相对路径基于**配置文件所在目录**。显式参数优先。实际路径保存于 `source.json`、运行/观察点元数据及报告，原文件不会被修改。worker 中 `source/kernel.py` 是内部快照名称。
+
+这项修改解决文件输入，**没有解除当前源码内容/driver 契约限制或实现外部包/JIT 的通用接入**。以上例子中 `gelu_impl.py` 可是已有 GELU 源码的改名文件；受审 driver 仍通过内部 `kernel` 模块加载快照。任意用户 driver 的 import 方式尚未通用化。TileOPs 接入探测现显式传入上游文件，在源码/driver 契约处报告 unsupported，缺失文件则判为错误。
+
+已在 H200 上验证改名、移目录和含空格路径，数值/访问采集各得到 4096 条记录，报告关联实际输入文件；详见[路径输入验证](docs/source-path-validation.md)。
+
 ## 现在能看到什么
 
 以下是仓库自带 `monitor.json` 已经实际验证的采集内容，均选择 block `(1, 0, 0)`：

@@ -57,16 +57,14 @@ class IntegrationTests(unittest.TestCase):
     def test_failure_classification_does_not_hide_errors(self):
         with tempfile.TemporaryDirectory() as temp:
             driver = Path(temp) / "run.py"
-            missing = driver.resolve().with_name("kernel.py")
-            message = ('Traceback (most recent call last):\n  File "capture.py", line 1\n'
-                       '    source = source_file.read_text(encoding="utf-8")\n'
-                       f"FileNotFoundError: [Errno 2] No such file or directory: {str(missing)!r}\n")
+            message = ('Traceback (most recent call last):\n  File "instrument.py", line 1, in prepare\n'
+                       'tilelang_debugger.instrument.Unsupported: source/driver has no reviewed safety contract; modified kernels require review\n')
             failed = dict(returncode=1, timed_out=False)
             self.assertEqual(validation.debugger_status(failed, message, driver, "run"), "unsupported")
-            trace_message = message.replace('capture.py', 'access.py').replace('source_file.read_text', 'driver.with_name("kernel.py").read_text')
+            trace_message = message.replace('instrument.py', 'access_contracts.py').replace('safety contract; modified kernels require review', 'access contract')
             self.assertEqual(validation.debugger_status(failed, trace_message, driver, "trace"), "unsupported")
             self.assertEqual(validation.debugger_status(failed, message, driver, "trace"), "failed")
-            for changed in (message.replace("kernel.py'", "config.json'"), "ModuleNotFoundError: torch", "invalid config"):
+            for changed in (message.replace("source/driver", "other"), "FileNotFoundError: kernel.py", "ModuleNotFoundError: torch", "invalid config"):
                 self.assertEqual(validation.debugger_status(failed, changed, driver, "run"), "failed")
             for process in (dict(returncode=-11, timed_out=False), dict(returncode=1, timed_out=True)):
                 self.assertEqual(validation.debugger_status(process, message, driver, "run"), "failed")
