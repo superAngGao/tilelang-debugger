@@ -360,14 +360,27 @@ GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写�
 
 打印策略采用[统一嵌套控制流系统设计](docs/observation-strategy-design.md)。首批 scalar/local 实施见[具体方案](docs/observation-implementation-plan.md)、[独立方案审阅](docs/reviews/observation-implementation-review.md)、[独立代码审阅](docs/reviews/observation-code-review.md)和[验证记录](docs/observation-validation.md)。系统设计中的后续 group/pipeline 能力不等同于当前支持清单。
 
+后续控制流按[统一源码模型与组件设计](docs/source-control-flow-design.md)推进：循环属性、参与域、动态访问身份和提前退出的目标统一建模，打印与覆盖证明分别处理。本次已完成保持行为的目录拆分，详情见[重构验证](docs/component-refactor-validation.md)；Group/Pipelined、动态循环及提前退出尚未因此开放。
+
 ```text
-src/tilelang_debugger/   源码定位、采集宏、IR 检查、运行与记录解析
+src/tilelang_debugger/
+  source_analysis/      源码规范化、位置、绑定和控制作用域分析
+  instrumentation/      根据分析结果插入打印调用、别名和见证
+  emitters/             实际打印、原位编码和协作同步实现
+  protocols/            记录协议、解码、完整性及覆盖检查
+  runtime/              包导入及临时 hook 生命周期
+  capture_state.py      tile/samples 共用的 worker session
+  source_capture.py     编译、执行与证据调度
+  analysis.py           tile reference 分析
+  sample_analysis.py    samples reference 对齐
 examples/               GELU、Sum、GEMM、GQA 及选点配置
 tests/                  CPU/TIR 测试、GPU 验收与保真测试
 experiments/            T.print 同步、GQA 输出同步的隔离实验
 docs/                   实施方案、验证结果与独立审阅记录
 artifacts/              本地运行产物，不提交到 Git
 ```
+
+原 `scopes.py`、`source_instrument.py`、`monitor.py`、`sample_monitor.py`、`records.py`、`sample_records.py` 保留兼容入口；已有脚本和已保存的插桩源码继续可导入。固定 reviewed 引擎的 `instrument.py`／IR 门禁保持原实现。新增通用能力按上述组件边界落地，离线协议解析不加载打印器或 GPU 运行时。
 
 安装本项目后可运行：
 
