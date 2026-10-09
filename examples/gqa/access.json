@@ -1,0 +1,87 @@
+{
+  "source": "kernel.py",
+  "accesses": [
+    {
+      "id": "Q_114_transfer",
+      "line": 114,
+      "operation": "transfer",
+      "buffer": "Q",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "Q_115_transfer",
+      "line": 115,
+      "operation": "transfer",
+      "buffer": "Q",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "K_120_transfer",
+      "line": 120,
+      "operation": "transfer",
+      "buffer": "K",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": [
+        {
+          "line": 117,
+          "iteration": 2
+        }
+      ]
+    },
+    {
+      "id": "V_128_transfer",
+      "line": 128,
+      "operation": "transfer",
+      "buffer": "V",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": [
+        {
+          "line": 117,
+          "iteration": 2
+        }
+      ]
+    },
+    {
+      "id": "Os_293_transfer",
+      "line": 293,
+      "operation": "transfer",
+      "buffer": "Os",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "Os_455_transfer",
+      "line": 455,
+      "operation": "transfer",
+      "buffer": "Os",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    }
+  ]
+}

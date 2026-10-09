@@ -2,7 +2,7 @@
 
 面向 **NVIDIA H200** 的 TileLang 源码定点调试原型：选择源码行、buffer、block 和循环迭代，采集该位置的完整 tile，并保留插桩前后的 IR 与 CUDA，帮助核对中间计算结果。
 
-**当前能力：源码定点采集，以及用户 reference 接入与离线数值分析。** 支持范围是本仓库 GELU、Sum、GEMM、GQA 四个样例的固定构建参数和已审阅观察位置。当前以命令行和文件产物为主，尚未支持任意用户 kernel 或交互式调试界面。各阶段验证和独立审阅见文末链接。
+**当前能力：源码定点数值采集、用户 reference 离线分析，以及运行时访问索引与边界观察。** 支持范围是本仓库 GELU、Sum、GEMM、GQA 四个样例的固定构建参数和已审阅观察位置。当前以命令行和文件产物为主，尚未支持任意用户 kernel 或交互式调试界面。各阶段验证和独立审阅见文末链接。
 
 ## 现在能看到什么
 
@@ -19,6 +19,40 @@
 每个元素都有观察点、launch、block、循环变量值、逻辑索引和原始位模式；观察点另附源码行、buffer 名、shape 和 dtype。按这些身份重建 tile，不依赖设备日志的出现顺序。重复、缺失、截断和身份不匹配都会判为失败。
 
 采集支持 `float16`、`bfloat16`、`float32`、`int32`，以原始位模式保存，避免 `%f` 文本转换损失精度。数值展示时可以解码；需要核对 NaN payload 等细节时，应直接比较 `bits`。
+
+## 看一次访问的索引与边界
+
+`trace` 在源码中选择访问语句、block 和串行循环次数，采集 lowering 后**原访问表达式在 GPU 上的值**。它与数值 `run` 分开执行，使用独立的 `access.json`；不会在原 kernel 文件里写入代码。
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python -m tilelang_debugger trace examples/sum/run.py \
+  --access examples/sum/access.json \
+  --output artifacts/sum-access-001 --sanitizer memcheck
+```
+
+| 样例 / 配置 | 原始源码位置 | 默认选择得到什么 | 记录数 |
+| --- | --- | --- | ---: |
+| GELU / `examples/gelu/access.json` | 87 行 read x、90 行 write y | global 元素偏移、字节偏移、线程及向量分量 | 4096 |
+| Sum N=257 / `examples/sum/access.json` | 35 行 read x，33 行循环第 1 次 | 512 个候选访问：257 active、255 masked | 512 |
+| Sum N=256 / `examples/sum/access_unpadded.json` | 42 行 read x / write shared_buf；47 行 read shared_buf | global→shared 两端分别记录，以及第一行 shared 读取 | 1280 |
+| GEMM / `examples/gemm/access.json` | 93/98 行 transfer a/b，70/77 行循环均第 2 次 | 两次实际 TMA 调用的坐标、shared 偏移、barrier 下标及 issuer | 2 |
+| GQA / `examples/gqa/access.json` | 114/115/120/128/293/455 行 | Q 两次加载、第二轮 K/V 加载、两个 consumer 输出写回 | 6 |
+
+Sum N=256 使用驱动 `examples/sum/run_unpadded.py`。其余驱动均为样例目录下的 `run.py`。所有默认配置选择 block `(1,0,0)`；`loops[].iteration` 从 1 开始，记录保留从 0 开始的实际循环变量。可在这些受审位置选择其他合法 block / 串行迭代；GEMM 的 ring slot 必须与所选 K 迭代匹配。
+
+普通读写逐线程、逐向量分量记录索引，保持原向量访存不变，不额外读取目标数据。掩码为 false 的候选访问单独展示，不能把它判为非法读取。TMA 则**每次实际搬运调用一条记录**，不伪造逐线程 global 元素访问；线程来自原 election 的结果。
+
+主要产物：
+
+- `access-report.md`：源码行、记录数、active/masked 统计和 TMA 逻辑区域。
+- `access-records.jsonl`：runtime block、线程、循环值、索引或 TMA 实参；主键包含 run / launch / site，不依赖日志顺序。
+- `access-points.json`：源码身份、原索引/guard 表达式、向量宽度、预期事件域及 shared 别名信息。
+- `access-analysis.json`：边界解释和 TMA 区域。descriptor 参数标为 `derived_from_host_ir_and_launch_bindings`，不声称读取过 opaque descriptor。
+- 两个 worker 目录中的 `pretrace.py/json`、`codegen.py/json`、`kernel.cu`、`descriptors.json` 和进程/门禁/sanitizer 记录；插桩目录另存 `traced.py/json`。
+
+实现是在原 CUDA pipeline 结束后追加 Python IR 日志转换，继续使用既有 `printf`；不新增 TileLang intrinsic、C++ lowering 指令或安装文件修改，也不添加采集 barrier/shared 中转。插桩前 IR 必须符合已授权 baseline；移除日志后，pipeline 边界和真实 codegen 输入均须与基线结构等价。TMA host 构造与实际 launch 参数另外核对。实验中的 FFI hook 会在进程退出时崩溃，产品路径没有采用它。
+
+`trace` 支持 `--sanitizer racecheck|synccheck|memcheck`，记录预算为 65,536 条、FIFO 至少 64 MiB。缺失、重复、截断、未知事件、原程序故障或两版输出不一致均失败。最终 reference 不匹配时保留采集，CLI 退出 2。访问记录描述插桩程序的 IR 实参，不证明硬件事务完成；TMA shared swizzle 的物理逐元素地址尚未展开，也不自动判断并发竞态或根因。
 
 ## 环境与安装
 
@@ -229,15 +263,15 @@ GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写�
   → 校验记录完整性、两版输入/输出一致性，保存产物
 ```
 
-采集宏沿用 TileLang 已有的 fragment→shared 搬运和 printf 机制，在内部搬运后及打印后安排组内同步；异步 accumulator 使用已有 operand-fence intrinsic。**没有新增 lowering pass 或指令，也没有修改安装的 TileLang。** 原始源码不被覆盖，编译缓存被禁用，导出的是实际编译对象的产物。
+数值 `run` 的采集宏沿用 TileLang 已有的 fragment→shared 搬运和 printf 机制，在内部搬运后及打印后安排组内同步；异步 accumulator 使用已有 operand-fence intrinsic。数值路径没有新增 lowering pass 或指令，也没有修改安装的 TileLang。访问 `trace` 的 Python IR 转换见前述说明。原始源码不被覆盖，编译缓存被禁用，导出的是实际编译对象的产物。
 
 当前限制：
 
 - 仅支持经过审阅的四个样例、固定构建参数、观察位置与布局；未知同步协议或布局会在 launch 前拒绝。
-- 采集对象为完整 fragment，暂不支持直接 shared buffer 采集、`T.Pipelined` / `T.unroll` 内选点或多 launch。
+- 数值采集对象为完整 fragment，暂不支持直接 shared buffer 数值采集、`T.Pipelined` / `T.unroll` 内选点或多 launch；访问 trace 可查看上述固定 shared 读写。
 - 一次采集最多 65,536 个元素，设备 printf FIFO 至少 64 MiB；仍以实际记录完整性检查为准。
 - monitor 会增加 shared memory、寄存器和同步开销，插桩程序不能代表原程序性能。
-- 内存访问索引/边界诊断、自动根因诊断和交互式报告尚未实现。reference 由用户提供，不自动生成。
+- 访问观察限于表中已审阅位置；任意数据相关 gather 索引、自动根因诊断和交互式报告尚未实现。reference 由用户提供，不自动生成。
 
 ## 开发与审阅记录
 
@@ -257,12 +291,26 @@ artifacts/              本地运行产物，不提交到 Git
 python -m unittest discover -s tests -p test_cpu.py -v
 python -m unittest discover -s tests -p test_evidence.py -v
 python -m unittest discover -s tests -p test_numerics.py -v
+python -m unittest discover -s tests -p test_access.py -v
 
 # 需要 PyTorch，CPU 即可；不加载 TileLang
 python -m unittest discover -s tests -p test_analysis.py -v
 
 # 需要真实 TileLang/TVM，但测试本身不 launch GPU
 python -m unittest discover -s tests -p test_ir.py -v
+
+# 先在 H200 生成 GQA trace，再只用 CPU 检查真实 host/device IR 及拒绝负例
+TLACC_FIXTURE=artifacts/gqa-access-001 python -m unittest discover -s tests -p test_access_ir.py -v
+
+# 访问观察五条路径；依次把 tool 换成 synccheck、memcheck（输出目录须不同）
+CUDA_VISIBLE_DEVICES=0 python tests/validate_access.py \
+  --output artifacts/access-racecheck --sanitizer racecheck
+CUDA_VISIBLE_DEVICES=0 python experiments/access_protocol_probe.py \
+  --output artifacts/access-protocol
+
+# 完整 CPU 回归按 suite 隔离；analysis 测试要求从未导入 TileLang
+python tests/run_cpu.py --output artifacts/cpu-regression \
+  --access-fixture artifacts/gqa-access-001
 
 # H200 上重现 T.print 同步的八个正负对照
 CUDA_VISIBLE_DEVICES=0 python tests/validate_print_probe.py \
@@ -276,4 +324,9 @@ CUDA_VISIBLE_DEVICES=0 python tests/validate_print_probe.py \
 - [第三步实施方案](docs/phase3-plan.md)与[独立设计审阅](docs/reviews/phase3-design-review-v1.md)
 - [第三步独立代码复审：PASS](docs/reviews/phase3-code-review-v2.md)与[CPU/H200验证记录](docs/phase3-validation.md)
 
-下一阶段计划：运行时访问索引/边界与布局观察 → 分层采集和报告。硬件范围继续聚焦 NVIDIA H200。
+- [第四步方案](docs/phase4-plan.md)与[第三轮独立设计审阅：PASS](docs/reviews/phase4-design-review-v3.md)
+- [第四步第二轮独立代码复审：PASS](docs/reviews/phase4-code-review-v2.md)
+- [第四步最终独立验收复核：PASS](docs/reviews/phase4-acceptance-review.md)
+- [第四步验证记录](docs/phase4-validation.md)；各轮代码审阅保存在 [docs/reviews](docs/reviews)。
+
+后续方向：扩展受审观察位置、分层采集和报告。硬件范围继续聚焦 NVIDIA H200。

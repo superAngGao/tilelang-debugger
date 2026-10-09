@@ -1,0 +1,47 @@
+{
+  "source": "kernel.py",
+  "accesses": [
+    {
+      "id": "a_93_transfer",
+      "line": 93,
+      "operation": "transfer",
+      "buffer": "a",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": [
+        {
+          "line": 70,
+          "iteration": 2
+        },
+        {
+          "line": 77,
+          "iteration": 2
+        }
+      ]
+    },
+    {
+      "id": "b_98_transfer",
+      "line": 98,
+      "operation": "transfer",
+      "buffer": "b",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": [
+        {
+          "line": 70,
+          "iteration": 2
+        },
+        {
+          "line": 77,
+          "iteration": 2
+        }
+      ]
+    }
+  ]
+}

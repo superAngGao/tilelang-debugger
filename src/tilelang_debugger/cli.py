@@ -17,7 +17,25 @@ def main():
     analyze.add_argument("--output", required=True)
     worker = commands.add_parser("_worker", help=argparse.SUPPRESS)
     worker.add_argument("folder")
+    trace = commands.add_parser("trace", help="Trace runtime access operands at reviewed source lines")
+    trace.add_argument("driver")
+    trace.add_argument("--access", required=True)
+    trace.add_argument("--output", required=True)
+    trace.add_argument("--timeout", type=int, default=240)
+    trace.add_argument("--sanitizer", choices=("racecheck", "synccheck", "memcheck"))
+    access_worker = commands.add_parser("_access_worker", help=argparse.SUPPRESS)
+    access_worker.add_argument("folder")
     args = parser.parse_args()
+    if args.command in ("trace", "_access_worker"):
+        from . import access
+        if args.command == "_access_worker":
+            access.worker(args.folder)
+        else:
+            result = access.run(args.driver, args.access, args.output, args.timeout, args.sanitizer)
+            print(json.dumps(result, indent=2))
+            if result["numerical_status"] == "failed":
+                raise SystemExit(2)
+        return
     if args.command == "analyze":
         from .analysis import analyze as analyze_capture
         result = analyze_capture(args.capture, args.reference, args.output)

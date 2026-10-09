@@ -52,15 +52,9 @@ def printf_capacity():
     return size.value
 
 
-def worker(folder):
-    # Set before importing TileLang; a fresh Python process alone doesn't prevent disk-cache hits.
-    os.environ["TILELANG_DISABLE_CACHE"] = "1"
-    folder = Path(folder).resolve()
-    request = json.loads((folder / "request.json").read_text(encoding="utf-8"))
-    os.environ["TLDBG_OUTPUT"] = str(folder)
+def configure_runtime(folder):
     import torch
     import tilelang
-    from . import ir, monitor
     if tilelang.__version__ != "0.1.12" or "H200" not in torch.cuda.get_device_name(0):
         raise RuntimeError("this release is validated only for TileLang 0.1.12 / NVIDIA H200")
     torch.manual_seed(1234)
@@ -86,6 +80,17 @@ def worker(folder):
               print_helper_sha256=helper_hash, torch=torch.__version__, cuda=torch.version.cuda,
               device=torch.cuda.get_device_name(0), printf_fifo_bytes=fifo, cache_disabled=True, headers=actual_headers,
               nvcc=str(nvcc), nvcc_version=nvcc_version))
+    return torch, tilelang
+
+
+def worker(folder):
+    # Set before importing TileLang; a fresh Python process alone doesn't prevent disk-cache hits.
+    os.environ["TILELANG_DISABLE_CACHE"] = "1"
+    folder = Path(folder).resolve()
+    request = json.loads((folder / "request.json").read_text(encoding="utf-8"))
+    os.environ["TLDBG_OUTPUT"] = str(folder)
+    torch, tilelang = configure_runtime(folder)
+    from . import ir, monitor
     mode, points, contract = request["mode"], request["points"], request["contract"]
     baseline = json.loads((folder.parent / "baseline" / "compile.json").read_text()) if mode == "instrumented" else None
     original_compile = tilelang.compile
@@ -141,8 +146,8 @@ def worker(folder):
     save_json(folder / "execution.json", dict(compiles=compiles, launches=launches, restored=tilelang.compile is original_compile))
 
 
-def subprocess_worker(folder, timeout, sanitizer=None):
-    command = [sys.executable, "-m", "tilelang_debugger", "_worker", str(folder)]
+def subprocess_worker(folder, timeout, sanitizer=None, command_name="_worker"):
+    command = [sys.executable, "-m", "tilelang_debugger", command_name, str(folder)]
     if sanitizer:
         command = ["compute-sanitizer", "--tool", sanitizer, "--error-exitcode", "86",
                    "--log-file", str(folder / f"{sanitizer}.log")] + command

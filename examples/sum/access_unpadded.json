@@ -1,0 +1,46 @@
+{
+  "source": "kernel.py",
+  "accesses": [
+    {
+      "id": "x_42_read",
+      "line": 42,
+      "operation": "read",
+      "buffer": "x",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "shared_buf_42_write",
+      "line": 42,
+      "operation": "write",
+      "buffer": "shared_buf",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": []
+    },
+    {
+      "id": "shared_buf_47_read",
+      "line": 47,
+      "operation": "read",
+      "buffer": "shared_buf",
+      "block": [
+        1,
+        0,
+        0
+      ],
+      "loops": [
+        {
+          "line": 45,
+          "iteration": 1
+        }
+      ]
+    }
+  ]
+}
