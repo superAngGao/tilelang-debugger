@@ -319,6 +319,8 @@ GQA 使用了局部同步修正版：原样例的输出阶段缺少 shared 写�
 
 ## 开发与审阅记录
 
+下一轮打印策略采用[统一嵌套控制流系统设计](docs/observation-strategy-design.md)，[独立系统设计审阅已通过](docs/reviews/observation-strategy-design-review-v1.md)。循环/分支统一为作用域路径，对象决定打印方式；该设计尚未实施，不能作为当前功能支持清单。
+
 ```text
 src/tilelang_debugger/   源码定位、采集宏、IR 检查、运行与记录解析
 examples/               GELU、Sum、GEMM、GQA 及选点配置
