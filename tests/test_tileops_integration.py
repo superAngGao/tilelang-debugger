@@ -60,15 +60,12 @@ class IntegrationTests(unittest.TestCase):
             message = ('Traceback (most recent call last):\n  File "instrument.py", line 1, in prepare\n'
                        'tilelang_debugger.instrument.Unsupported: source/driver has no reviewed safety contract; modified kernels require review\n')
             failed = dict(returncode=1, timed_out=False)
-            self.assertEqual(validation.debugger_status(failed, message, driver, "run"), "unsupported")
-            trace_message = message.replace('instrument.py', 'access_contracts.py').replace('safety contract; modified kernels require review', 'access contract')
-            self.assertEqual(validation.debugger_status(failed, trace_message, driver, "trace"), "unsupported")
-            self.assertEqual(validation.debugger_status(failed, message, driver, "trace"), "failed")
+            self.assertEqual(validation.debugger_status(failed, message), "unsupported")
             for changed in (message.replace("source/driver", "other"), "FileNotFoundError: kernel.py", "ModuleNotFoundError: torch", "invalid config"):
-                self.assertEqual(validation.debugger_status(failed, changed, driver, "run"), "failed")
+                self.assertEqual(validation.debugger_status(failed, changed), "failed")
             for process in (dict(returncode=-11, timed_out=False), dict(returncode=1, timed_out=True)):
-                self.assertEqual(validation.debugger_status(process, message, driver, "run"), "failed")
-            self.assertEqual(validation.debugger_status(dict(returncode=0, timed_out=False), "", driver, "run"), "unverified")
+                self.assertEqual(validation.debugger_status(process, message), "failed")
+            self.assertEqual(validation.debugger_status(dict(returncode=0, timed_out=False), ""), "unverified")
 
     def test_strict_acceptance_fails_on_unsupported(self):
         base, probes = [dict(passed=True)], [dict(status="unsupported")]

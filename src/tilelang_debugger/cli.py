@@ -24,15 +24,6 @@ def main():
     source_worker.add_argument("folder")
     unified_worker = commands.add_parser('_unified_worker', help=argparse.SUPPRESS)
     unified_worker.add_argument('folder')
-    trace = commands.add_parser("trace", help="Trace runtime access operands at reviewed source lines")
-    trace.add_argument("driver")
-    trace.add_argument("--source", help="Kernel source file (relative to cwd); defaults to config source relative to config directory")
-    trace.add_argument("--access", required=True)
-    trace.add_argument("--output", required=True)
-    trace.add_argument("--timeout", type=int, default=240)
-    trace.add_argument("--sanitizer", choices=("racecheck", "synccheck", "memcheck"))
-    access_worker = commands.add_parser("_access_worker", help=argparse.SUPPRESS)
-    access_worker.add_argument("folder")
     argv = sys.argv[1:]
     separator = argv.index("--") if "--" in argv else len(argv)
     driver_args = argv[separator + 1:]
@@ -46,16 +37,6 @@ def main():
     if args.command == '_unified_worker':
         from .runtime.unified_capture import worker as unified_worker_run
         unified_worker_run(args.folder)
-        return
-    if args.command in ("trace", "_access_worker"):
-        from . import access
-        if args.command == "_access_worker":
-            access.worker(args.folder)
-        else:
-            result = access.run(args.driver, args.access, args.output, args.timeout, args.sanitizer, source_path=args.source)
-            print(json.dumps(result, indent=2))
-            if result["numerical_status"] == "failed":
-                raise SystemExit(2)
         return
     if args.command == "analyze":
         from .analysis import analyze as analyze_capture

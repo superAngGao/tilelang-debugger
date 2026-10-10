@@ -1,5 +1,7 @@
 # TileOPs 外部示例验证（2026-10-09）
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 本次完成 **Softmax、RMSNorm、RoPE 的外部数值基线与接入缺口测试**。没有修改 debugger 产品模块，没有增加源码、算子或 CUDA 白名单。**通用用户 kernel 接入尚未完成，也未在这三个 kernel 上取得中间 tile/runtime 索引。**
 
 ## 实测结果

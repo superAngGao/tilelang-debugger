@@ -66,18 +66,20 @@ def inject(source, points, *, enabled=True):
             if not s or not enabled:
                 return node
             prelude = []
-            # Snapshot the original arguments once, preserving left-to-right order.
-            # Pipelined scheduling arguments remain in their original call.
-            count = len(node.iter.args)
-            for i in range(count):
-                name = f"{prefix}_{s['id']}_arg{i}"
-                prelude.append(ast.Assign(targets=[ast.Name(id=name, ctx=ast.Store())], value=node.iter.args[i]))
-                node.iter.args[i] = ast.Name(id=name, ctx=ast.Load())
-            for i, keyword in enumerate(node.iter.keywords):
-                name = f"{prefix}_{s['id']}_kw{i}"
-                prelude.append(ast.Assign(targets=[ast.Name(id=name, ctx=ast.Store())], value=keyword.value))
-                keyword.value = ast.Name(id=name, ctx=ast.Load())
-            node.body[:0] = [n for alias, original in zip(s['aliases'], s['names']) for n in statements(f'{alias} = {original}')]
+            # Consume the analyzer's evaluation plan. The frontend adapter
+            # decides binding semantics from the actual object, not AST names.
+            for argument in s['arguments']:
+                i, name = argument['index'], argument['binding']
+                original = node.iter.args[i] if argument['slot'] == 'positional' else node.iter.keywords[i].value
+                if ast.unparse(original) != argument['expression']:
+                    raise ValueError('loop argument differs from source evaluation plan')
+                value = ast.Call(func=ast.Name(id=f'{prefix}_reference', ctx=ast.Load()), args=[original], keywords=[])
+                prelude.append(ast.Assign(targets=[ast.Name(id=name, ctx=ast.Store())], value=value))
+                if argument['slot'] == 'positional':
+                    node.iter.args[i] = ast.Name(id=name, ctx=ast.Load())
+                else:
+                    node.iter.keywords[i].value = ast.Name(id=name, ctx=ast.Load())
+            node.body[:0] = [n for alias, original in zip(s['aliases'], s['names']) for n in statements(f'{alias} = {prefix}_reference({original})')]
             return prelude + [node]
 
         def visit_While(self, node):
@@ -99,6 +101,10 @@ def inject(source, points, *, enabled=True):
                         scopes = [s for s in p['scopes'] if s['kind'] in loop_kinds]
                         coords = tuple_code([a for s in scopes for a in s['aliases']])
                         ordinals = tuple_code([s['ordinal'] for s in scopes])
+                        if p.get('mode') == 'access':
+                            spec = p['access_spec']
+                            other = spec['destination' if spec.get('side') == 0 else 'source'] if spec['kind'] == 'copy' else 'None'
+                            return statements(f"{prefix}_observe_access({spec['expression']}, {other}, {spec['predicate']}, {p['id']!r}, {counter(p)}, {coords}, {ordinals})")
                         return statements(f"{prefix}_observe({p['buffer']}, {p['id']!r}, {counter(p)}, {coords}, {ordinals})")
                     body = out if isinstance(out, list) else [out]
                     return [n for p in matching if p['when'] == 'before' for n in capture(p)] + body + [n for p in matching if p['when'] == 'after' for n in capture(p)]
@@ -109,5 +115,8 @@ def inject(source, points, *, enabled=True):
     while pos < len(tree.body) and isinstance(tree.body[pos], ast.ImportFrom) and tree.body[pos].module == '__future__':
         pos += 1
     tree.body.insert(pos, ast.ImportFrom(module='tilelang_debugger.emitters.unified', names=[ast.alias(name=n, asname=f'{prefix}_{n}') for n in ('start', 'finish', 'observe', 'ordinal', 'iteration')], level=0))
+    tree.body.insert(pos, ast.ImportFrom(module='tilelang_debugger.frontend.bindings', names=[ast.alias(name='reference', asname=f'{prefix}_reference')], level=0))
+    if any(p.get('mode') == 'access' for p in points):
+        tree.body.insert(pos, ast.ImportFrom(module='tilelang_debugger.emitters.access', names=[ast.alias(name='observe_access', asname=f'{prefix}_observe_access')], level=0))
     tree.body.insert(pos, ast.ImportFrom(module='tilelang_debugger.runtime.builds', names=[ast.alias(name='building', asname=f'{prefix}_building')], level=0))
     return ast.unparse(ast.fix_missing_locations(tree)) + '\n'

@@ -9,12 +9,12 @@ import sys
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--output',required=True);parser.add_argument('--access-fixture',required=True)
+    parser=argparse.ArgumentParser();parser.add_argument('--output',required=True)
     args=parser.parse_args();folder=Path(args.output);folder.mkdir(parents=True,exist_ok=False)
-    env=dict(os.environ,CUDA_VISIBLE_DEVICES='',TLACC_FIXTURE=str(Path(args.access_fixture).resolve()))
+    env=dict(os.environ,CUDA_VISIBLE_DEVICES='')
     results=[]
-    for file in ('test_cpu.py','test_evidence.py','test_numerics.py','test_analysis.py','test_ir.py','test_access.py','test_access_ir.py',
-                 'test_source_path.py','test_tileops_integration.py','test_source_engine.py','test_scopes.py','test_components.py','test_unified.py'):
+    for file in ('test_cpu.py','test_evidence.py','test_numerics.py','test_analysis.py','test_ir.py',
+                 'test_source_path.py','test_tileops_integration.py','test_source_engine.py','test_scopes.py','test_components.py','test_unified.py','test_source_access.py','test_frontend_contracts.py','test_runtime_parameters.py'):
         command=[sys.executable,'-m','unittest','discover','-s','tests','-p',file,'-v']
         result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=120)
         (folder/(file+'.log')).write_text(result.stdout+result.stderr)

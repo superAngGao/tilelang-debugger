@@ -21,6 +21,8 @@ from ..protocols.unified import parse
 from ..records import write_records
 from .source_loader import source_loader
 from . import builds
+from .parameters import parameters, bind
+from .point_bindings import resolve as resolve_points
 
 
 def read(path):
@@ -32,11 +34,11 @@ def save_values(values, folder, prefix):
     groups, result = {}, []
     for i, value in enumerate(values):
         if isinstance(value, torch.Tensor):
-            if not value.is_cuda or not value.is_contiguous():
-                raise ValueError('capture arguments need contiguous CUDA tensors')
+            if not value.is_cuda:
+                raise ValueError('GPU capture arguments need CUDA tensors')
             storage = value.untyped_storage()
-            group = groups.setdefault(storage.data_ptr(), len(groups))
-            raw = value.detach().reshape(-1).view(torch.uint8).cpu().numpy().tobytes()
+            group = groups.setdefault((str(value.device), storage.data_ptr()), len(groups))
+            raw = value.detach().contiguous().reshape(-1).view(torch.uint8).cpu().numpy().tobytes()
             filename = f'{prefix}-{i}.bin'
             (folder / filename).write_bytes(raw)
             result.append(dict(kind='tensor', shape=list(value.shape), stride=list(value.stride()),
@@ -58,7 +60,10 @@ def worker(folder):
     folder = Path(folder).resolve()
     request = read(folder / 'request.json')
     os.environ['TLDBG_OUTPUT'] = str(folder)
-    torch, tilelang = configure_runtime(folder)
+    from ..frontend.compatibility import check
+    compatibility = check()
+    save_json(folder / 'compatibility.json', compatibility)
+    torch, tilelang = configure_runtime(folder, strict=False)
     # Record the exact installed product used by this GPU worker.
     import tilelang_debugger
     environment = read(folder / 'environment.json')
@@ -98,7 +103,7 @@ def worker(folder):
         kernel = original(prim_func, *args, **kwargs)
         export(kernel, prim_func, where, outputs)
         metadata = dict(compile=cid, build=build_id, outputs=outputs,
-                        parameters=[dict(name=str(v.name), kind='tensor' if v in prim_func.buffer_map else 'scalar', dtype=str(prim_func.buffer_map[v].dtype if v in prim_func.buffer_map else v.dtype), shape=[int(s) for s in prim_func.buffer_map[v].shape] if v in prim_func.buffer_map else None) for v in prim_func.params],
+                        parameters=parameters(prim_func),
                         point_ids=[p['id'] for p in points])
         compiles.append(metadata)
         save_json(where / 'identity.json', metadata)
@@ -110,15 +115,17 @@ def worker(folder):
                 return getattr(kernel, name)
 
             def __call__(self, *values, **launch_kwargs):
-                if launch_kwargs or len(values) != len(inputs):
-                    raise ValueError('sequential capture requires positional kernel arguments')
-                if torch.cuda.current_stream() != torch.cuda.default_stream() or torch.cuda.is_current_stream_capturing():
-                    raise ValueError('capture requires sequential default-stream launches; custom streams/graphs are not supported')
+                names = [str(prim_func.buffer_map[prim_func.params[i]].name) if prim_func.params[i] in prim_func.buffer_map else str(prim_func.params[i].name) for i in inputs]
+                call_signature = inspect.Signature([inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD) for name in names])
+                arguments = call_signature.bind(*values, **launch_kwargs).arguments
+                values = tuple(arguments[name] for name in names)
+                if torch.cuda.is_current_stream_capturing():
+                    raise ValueError('host snapshots cannot run inside CUDA Graph capture')
                 for value, i in zip(values, inputs):
                     param = prim_func.params[i]
                     if param in prim_func.buffer_map:
                         buf = prim_func.buffer_map[param]
-                        if not isinstance(value, torch.Tensor) or list(value.shape) != [int(s) for s in buf.shape] or str(value.dtype).removeprefix('torch.') != str(buf.dtype):
+                        if not isinstance(value, torch.Tensor) or str(value.dtype).removeprefix('torch.') != str(buf.dtype):
                             raise ValueError('tensor argument differs from frontend shape/dtype')
                     elif type(value) not in (int, float, bool):
                         raise ValueError('scalar parameter needs a Python numeric value')
@@ -139,6 +146,9 @@ def worker(folder):
                 where.mkdir(parents=True)
                 torch.cuda.synchronize()
                 before = save_values(values, where, 'before')
+                symbol_bindings = bind(metadata['parameters'], before, inputs)
+                if instrumented:
+                    save_json(where / 'points.json', resolve_points(points, symbol_bindings))
                 if instrumented and before != read(folder.parent / 'baseline' / 'launches' / str(lid) / 'before.json'):
                     raise ValueError('baseline/instrumented inputs or alias structure differ')
                 ctypes.CDLL(None).fflush(None)
@@ -150,6 +160,8 @@ def worker(folder):
                 returned = [] if output is None else [output] if isinstance(output, torch.Tensor) else list(output)
                 save_values([*values, *returned], where, 'after')
                 entry = dict(launch=lid, compile=cid, arguments=len(values), returned=len(returned))
+                entry['symbols'] = symbol_bindings
+                entry['stream'] = 'caller_current_stream'
                 launches.append(entry)
                 save_json(where / 'identity.json', entry)
                 return output
@@ -249,7 +261,7 @@ def run(driver, config_file, output, timeout=240, sanitizer=None, *, source_path
             for kind in ('before', 'after'):
                 if read(output / 'baseline' / 'launches' / str(lid) / f'{kind}.json') != read(output / 'instrumented' / 'launches' / str(lid) / f'{kind}.json'):
                     raise ValueError('baseline/instrumented parameter mutation/output differs')
-            bound = read(output / 'instrumented' / 'compiles' / str(cid) / 'points.json')
+            bound = read(output / 'instrumented' / 'launches' / str(lid) / 'points.json')
             data, complete = parse(logs[lid], bound, launch=lid, compile_id=cid)
             records.extend(data)
             coverage[str(lid)] = complete
@@ -268,6 +280,12 @@ def run(driver, config_file, output, timeout=240, sanitizer=None, *, source_path
                       unlaunched_points=missing, point_lifecycle=lifecycle,
                       configured_points=[p['id'] for p in points], launched_points=sorted({p['id'] for c in contracts for p in c['points']}))
         save_json(output / 'run.json', result)
+        if any(p.get('mode') == 'access' for p in points):
+            from ..protocols.access import report, markdown
+            summary, requests = report(records, contracts, coverage)
+            save_json(output / 'access-summary.json', summary)
+            write_records(output / 'accesses.jsonl', requests)
+            (output / 'access-report.md').write_text(markdown(summary), encoding='utf-8')
         from .unified_evidence import verify
         verify(output, sanitizer)
         return result

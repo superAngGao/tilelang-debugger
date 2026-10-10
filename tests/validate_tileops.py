@@ -40,27 +40,25 @@ def execute(command, folder, env, timeout):
     return result
 
 
-def debugger_status(process, stderr, driver, command):
+def debugger_status(process, stderr):
     if process["timed_out"] or process["returncode"] < 0:
         return "failed"
     if process["returncode"] == 0:
         return "unverified"  # Never infer complete captures from a zero exit alone.
-    module = "instrument.py" if command == "run" else "access_contracts.py"
     lines = stderr.rstrip().splitlines()
-    reason = ("source/driver has no reviewed safety contract; modified kernels require review" if command == "run"
-              else "source/driver has no reviewed access contract")
+    reason = "source/driver has no reviewed safety contract; modified kernels require review"
     # Only a real source/driver contract rejection; missing files/config/dependencies fail.
     if (lines and lines[-1] == "tilelang_debugger.instrument.Unsupported: " + reason
             and "Traceback (most recent call last):" in stderr
-            and f'{module}", line ' in stderr and 'in prepare' in stderr):
+            and 'instrument.py", line ' in stderr and 'in prepare' in stderr):
         return "unsupported"
     return "failed"
 
 
-def probe_config(case, checkout, command):
+def probe_config(case, checkout):
     """Build an admission request, not a claim that the selected point is supported."""
     resolved = observations(case, checkout)
-    kind = "monitor" if command == "run" else "access"
+    kind = "monitor"
     candidates = resolved[kind]["points"]
     if not candidates:  # RoPE has no fragment; y is a candidate global-buffer value request.
         candidates = [p for p in resolved["access"]["points"] if p["operation"] == "write"]
@@ -68,11 +66,8 @@ def probe_config(case, checkout, command):
     point = {k:p[k] for k in ("id", "line", "buffer", "block")}
     point["loops"] = [dict(line=l["line"], iteration=p.get("iteration_by_variable", {}).get(l["target"], 1))
                       for l in p["enclosing_loops"] if not l["iterator"].startswith("T.Parallel(")]
-    if command == "run":
-        point["when"] = p.get("when", "after")
-    else:
-        point["operation"] = p["operation"]
-    return dict(source=resolved[kind]["source"], **{"points" if command == "run" else "accesses": [point]})
+    point["when"] = p.get("when", "after")
+    return dict(source=resolved[kind]["source"], points=[point])
 
 
 def baseline_status(folder, process, sanitizer):
@@ -117,7 +112,7 @@ def main():
     parser.add_argument("--case", action="append", help="Limit baseline cases (repeatable)")
     parser.add_argument("--timeout", type=int, default=240)
     parser.add_argument("--sanitizers", action="store_true", help="Add all three sanitizers to one case per example")
-    parser.add_argument("--require-debugger", action="store_true", help="Fail if public run/trace cannot capture these kernels")
+    parser.add_argument("--require-debugger", action="store_true", help="Fail if reviewed run cannot capture these kernels")
     parser.add_argument("--probes-only", action="store_true", help="Run entry probes only; cannot pass full baseline acceptance")
     args = parser.parse_args()
     if sys.platform != "linux":
@@ -151,21 +146,18 @@ def main():
         print(json.dumps(dict(case=label, passed=result["passed"])), flush=True)
     for example in representatives:
         driver = EXAMPLES / example / "run.py"
-        for command in ("run", "trace"):
-            kind = "monitor" if command == "run" else "access"
-            folder = output / f"{example}-{command}-probe"
-            config = probe_config(representatives[example], Path(args.tileops).resolve(), command)
-            config_path = output / f"{example}-{kind}-request.json"
-            save(config_path, config)
-            cmd = [sys.executable, "-m", "tilelang_debugger", command, str(driver), f"--{kind}",
-                   str(config_path), "--source", config["source"], "--output", str(folder / "capture")]
-            if command == "run":
-                cmd += ["--engine", "reviewed"]
-            process = execute(cmd, folder, env, args.timeout)
-            status = debugger_status(process, (folder / "stderr.log").read_text(), driver, command)
-            probes.append(dict(example=example, command=command, status=status, process=process,
-                               reason="Source/driver admission probe only; point semantics and package/JIT execution have not been validated"))
-            save(output / "debugger-probes.json", probes)
+        folder = output / f"{example}-run-probe"
+        config = probe_config(representatives[example], Path(args.tileops).resolve())
+        config_path = output / f"{example}-monitor-request.json"
+        save(config_path, config)
+        cmd = [sys.executable, "-m", "tilelang_debugger", "run", str(driver), "--monitor",
+               str(config_path), "--source", config["source"], "--output", str(folder / "capture"),
+               "--engine", "reviewed"]
+        process = execute(cmd, folder, env, args.timeout)
+        status = debugger_status(process, (folder / "stderr.log").read_text())
+        probes.append(dict(example=example, command="run", status=status, process=process,
+                           reason="Source/driver admission probe only; point semantics and package/JIT execution have not been validated"))
+        save(output / "debugger-probes.json", probes)
     result = dict(suite_status(baseline, probes, args.require_debugger), baselines=baseline, probes=probes,
                   scope="Upstream numerical baselines and public-entry readiness, not debug capture acceptance")
     save(output / "summary.json", result)

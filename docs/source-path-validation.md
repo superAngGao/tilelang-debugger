@@ -1,5 +1,7 @@
 # 用户指定源码路径验证
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 2026-10-09，完成 `run` / `trace` 源码输入修正。实际输入来自用户指定的 `--source` 或配置 `source`，不再查找 driver 同级 `kernel.py`。内部快照命名仍保留以兼容已有受审驱动；没有解除源码内容、driver 或算子契约。
 
 ## 路径规则

@@ -1,5 +1,7 @@
 # TileOPs 外部 kernel 测试方案
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 本次落实用户确认的首批 Softmax、RMSNorm、RoPE 示例和目录结构。直接加载用户指定 TileOPs checkout 中的 kernel，建立可复现的 H200 数值基线与调试接入测试。已有四例的 PASS 不能外推到这些 kernel；本次也不能用增加源码哈希白名单让新例“通过”。
 
 ## 目录与来源

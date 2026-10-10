@@ -1,5 +1,7 @@
 # TileOPs 外部示例代码独立复审 v2
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS，无剩余代码阻塞项，可以进入 H200 验证。** 这不是数值基线已通过或 debugger 已接入的结论。
 
 - 日期：2026-10-09。

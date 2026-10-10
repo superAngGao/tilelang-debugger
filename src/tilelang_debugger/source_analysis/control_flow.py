@@ -4,6 +4,7 @@ import copy
 import re
 
 from .normalize import normalized
+from .bindings import call_arguments
 from ..instrument import Unsupported, digest
 
 LOOPS = {'range': 'serial', 'T.serial': 'serial', 'T.Serial': 'serial',
@@ -38,6 +39,8 @@ def loop(node, prefix):
         raise Unsupported('expanded loop keyword arguments need an explicit signature')
     if any(isinstance(a, ast.Starred) for a in args):
         raise Unsupported('expanded loop arguments require an explicit signature')
+    arguments = call_arguments(node.iter, f'{prefix}_{sid}')
+    references = {(a['slot'], a['index']): a['binding'] for a in arguments}
     if kind == 'parallel':
         if len(args) != len(names):
             raise Unsupported('Parallel arity differs')
@@ -46,11 +49,11 @@ def loop(node, prefix):
         parameters = ['start', 'stop', 'num_stages', 'order', 'stage', 'sync', 'group'] if kind == 'pipeline' else ['start', 'stop', 'step']
         if len(args) > len(parameters) or name == 'range' and node.iter.keywords:
             raise Unsupported('invalid loop signature')
-        supplied = {parameters[i]: f'{prefix}_{sid}_arg{i}' for i in range(len(args))}
+        supplied = {parameters[i]: references['positional', i] for i in range(len(args))}
         for i, keyword in enumerate(node.iter.keywords):
             if keyword.arg in supplied:
                 raise Unsupported('duplicate loop argument')
-            supplied[keyword.arg] = f'{prefix}_{sid}_kw{i}'
+            supplied[keyword.arg] = references['keyword', i]
         if 'start' not in supplied:
             raise Unsupported('loop needs start')
         start, stop = supplied['start'], supplied.get('stop', 'None')
@@ -58,7 +61,7 @@ def loop(node, prefix):
     aliases = [f'{prefix}_{sid}_c{i}' for i in range(len(names))]
     ordinal = '0' if kind == 'parallel' else f'{prefix}_iteration({aliases[0]}, {start}, {stop}, {step})'
     return dict(kind=kind, line=node.lineno, id=sid, names=names, aliases=aliases,
-                ordinal=ordinal, call=name, start=start, step=step)
+                ordinal=ordinal, call=name, start=start, step=step, arguments=arguments)
 
 
 def prepare(source, config):
@@ -78,9 +81,13 @@ def prepare(source, config):
     points, ids = [], set()
     required = {'id', 'line', 'when', 'buffer', 'block', 'loops'}
     for original in config['points']:
-        if not isinstance(original, dict) or not required <= original.keys() or original.keys() - required - {'thread', 'region', 'collective'}:
+        if not isinstance(original, dict) or not required <= original.keys() or original.keys() - required - {'thread', 'region', 'collective', 'mode', 'operation', 'occurrence'}:
             raise Unsupported('invalid unified observation fields')
         p = copy.deepcopy(original)
+        if p.get('mode', 'value') not in {'value', 'access'}:
+            raise Unsupported('observation mode must be value or access')
+        if p.get('mode', 'value') == 'value' and any(k in p for k in ('operation', 'occurrence')):
+            raise Unsupported('operation/occurrence apply only to access observations')
         if not isinstance(p['id'], str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,31}', p['id']) or p['id'] in ids:
             raise Unsupported('invalid/duplicate point id')
         ids.add(p['id'])
@@ -98,7 +105,9 @@ def prepare(source, config):
             raise Unsupported('invalid observation expression') from exc
         allowed = (ast.Name, ast.Subscript, ast.Tuple, ast.Constant, ast.BinOp, ast.UnaryOp, ast.Load,
                    ast.Add, ast.Sub, ast.Mult, ast.FloorDiv, ast.Mod, ast.USub, ast.UAdd)
-        if not isinstance(expression, (ast.Name, ast.Subscript)) or any(not isinstance(n, allowed) for n in ast.walk(expression)):
+        from .expressions import operand
+        valid = operand(expression) if p.get('mode') == 'access' else isinstance(expression, (ast.Name, ast.Subscript)) and all(isinstance(n, allowed) for n in ast.walk(expression))
+        if not valid:
             raise Unsupported('observe a bound object or element with pure indices')
         if isinstance(expression, ast.Subscript) and (not isinstance(expression.value, ast.Name) or any(isinstance(n, ast.Subscript) for n in ast.walk(expression.slice))):
             raise Unsupported('element indices cannot add memory reads')
@@ -106,6 +115,9 @@ def prepare(source, config):
         if len(targets) != 1 or not isinstance(targets[0], (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Expr, ast.For, ast.While, ast.If)):
             raise Unsupported('select an unambiguous computation statement')
         target = targets[0]
+        if p.get('mode') == 'access':
+            from .access import select
+            p['access_spec'] = select(target, p)
         chain, child = [], target
         while child in parents:
             parent = parents[child]

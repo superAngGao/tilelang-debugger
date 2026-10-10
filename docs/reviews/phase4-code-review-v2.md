@@ -1,5 +1,7 @@
 # 第四步独立代码复审 v2
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS（当前固定四例范围内，v1 的 B1/B2/B3 已关闭，无剩余代码阻塞）。** 本次代码复审及已保存 racecheck 证据通过，不代替仍在进行的 synccheck、memcheck 和旧功能完整回归验收。
 
 日期：2026-10-09，Asia/Shanghai。复审当前 `access*.py`、相关测试/协议实验和既有产物。审阅者没有修改实现、没有启动 GPU；独立运行了纯 CPU/TIR 测试并只读重验远端数据。期间提出的负起始 TMA store 分类问题由实现者修复，以下结论包含该最终修复。

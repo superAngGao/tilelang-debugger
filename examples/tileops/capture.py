@@ -61,7 +61,7 @@ def main():
         raise ValueError("offline analysis did not complete")
     passed = capture_process.returncode == analysis_process.returncode == 0 and analysis.get("matched") is True
     save(output / "result.json", dict(status="passed" if passed else "numerical_mismatch", case=case, sanitizer=args.sanitizer,
-                                      scope="source values; RoPE input only; external trace not covered"))
+                                      scope="source values; RoPE input only"))
     return 0 if passed else 2
 
 

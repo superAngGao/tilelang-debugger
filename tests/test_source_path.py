@@ -5,10 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tilelang_debugger import cli, capture, access
+from tilelang_debugger import cli, capture
 from tilelang_debugger.source import load
 from tilelang_debugger.instrument import prepare, Unsupported
-from tilelang_debugger.access_contracts import prepare as access_prepare
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,21 +48,18 @@ class SourcePathTests(unittest.TestCase):
         directory = ROOT / 'examples/gelu'
         source = (directory / 'kernel.py').read_text(encoding='utf-8')
         driver = (directory / 'run.py').read_bytes()
-        for filename, preparer in [('monitor.json', lambda s,c: prepare(s,c,driver)),
-                                   ('access.json', lambda s,c: access_prepare(s,driver,c))]:
-            config = json.loads((directory / filename).read_text())
-            baseline = preparer(source, config)
-            config['source'] = '/some other folder/custom_gelu.py'
-            self.assertEqual(preparer(source, config), baseline)
-            with self.assertRaises(Unsupported):
-                preparer(source + '\n# changed', config)
+        config = json.loads((directory / 'monitor.json').read_text())
+        baseline = prepare(source, config, driver)
+        config['source'] = '/some other folder/custom_gelu.py'
+        self.assertEqual(prepare(source, config, driver), baseline)
+        with self.assertRaises(Unsupported):
+            prepare(source + '\n# changed', config, driver)
 
-    def test_cli_forwards_source_in_both_commands(self):
-        for command, flag, module in [('run', '--monitor', capture), ('trace', '--access', access)]:
-            with patch('sys.argv', ['tilelang-debugger', command, 'driver.py', flag, 'cfg.json', '--output', 'out', '--source', 'other name.py'] + (['--engine', 'reviewed'] if command == 'run' else [])), \
-                 patch.object(module, 'run', return_value={'numerical_status': 'passed'}) as run:
-                cli.main()
-            self.assertEqual(run.call_args.kwargs, dict(source_path='other name.py'))
+    def test_cli_forwards_source_to_reviewed_capture(self):
+        with patch('sys.argv', ['tilelang-debugger', 'run', 'driver.py', '--monitor', 'cfg.json', '--output', 'out', '--source', 'other name.py', '--engine', 'reviewed']), \
+             patch.object(capture, 'run', return_value={'numerical_status': 'passed'}) as run:
+            cli.main()
+        self.assertEqual(run.call_args.kwargs, dict(source_path='other name.py'))
 
     def test_runs_read_selected_content_without_driver_sibling(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -71,13 +67,13 @@ class SourcePathTests(unittest.TestCase):
             (root / 'driver').mkdir()
             driver = root / 'driver/run.py'; driver.write_text('driver')
             source = root / 'chosen.py'; source.write_text('exact selected content')
-            for module, point_key in ((capture,'points'), (access,'accesses')):
-                config = root / (point_key + '.json')
-                config.write_text(json.dumps(dict(source='chosen.py', **{point_key: []})))
-                with patch.object(module.sys, 'platform', 'linux'), patch.object(module, 'prepare', side_effect=Unsupported('stop at contract')) as prepare_mock:
-                    with self.assertRaisesRegex(Unsupported, 'stop at contract'):
-                        module.run(driver, config, root/'unused')
-                self.assertEqual(prepare_mock.call_args.args[0], 'exact selected content')
+            config = root / 'points.json'
+            config.write_text(json.dumps(dict(source='chosen.py', points=[])))
+            with patch.object(capture.sys, 'platform', 'linux'), patch.object(capture, 'prepare', side_effect=Unsupported('stop at contract')) as prepare_mock:
+                with self.assertRaisesRegex(Unsupported, 'stop at contract'):
+                    capture.run(driver, config, root/'unused')
+            self.assertEqual(prepare_mock.call_args.args[0], 'exact selected content')
+
 
 
 if __name__ == '__main__':

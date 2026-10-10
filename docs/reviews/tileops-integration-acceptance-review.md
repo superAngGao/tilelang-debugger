@@ -1,5 +1,7 @@
 # TileOPs 外部示例独立验收审阅
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS，本次外部基线与接入缺口测试子任务通过，无剩余阻塞项。Debugger 对这三类外部 kernel 仍是 unsupported，完整调试交付未通过。**
 
 - 日期：2026-10-09。

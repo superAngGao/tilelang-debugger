@@ -74,19 +74,17 @@ def load_values(folder, prefix):
     import torch
     import struct
     values = []
-    storages = {}
-    for item in json.loads((folder / f'{prefix}.json').read_text()):
+    from .runtime.tensor_views import restore_storage
+    items = json.loads((folder / f'{prefix}.json').read_text())
+    raw_storages = restore_storage(items, folder)
+    storages = {group: torch.frombuffer(raw, dtype=torch.uint8).clone().untyped_storage() if raw else torch.empty(0, dtype=torch.uint8).untyped_storage() for group, raw in raw_storages.items()}
+    for item in items:
         if item['kind'] == 'scalar':
             values.append(struct.unpack('>d', bytes.fromhex(item['bits']))[0] if item['dtype'] == 'float' else item['value'])
         else:
-            raw = bytearray((folder / item['file']).read_bytes())
             group = item['alias_group']
-            if group not in storages:
-                storages[group] = torch.empty(item['storage_bytes'], dtype=torch.uint8).untyped_storage()
             dtype = getattr(torch, item['dtype'])
             tensor = torch.empty(0, dtype=dtype).set_(storages[group], item['storage_offset'], item['shape'], item['stride'])
-            if raw:
-                tensor.copy_(torch.frombuffer(raw, dtype=dtype).reshape(item['shape']))
             values.append(tensor)
     return values
 
@@ -132,7 +130,10 @@ def analyze(capture, reference, output):
                 lid = contract['launch']
                 folder = capture / 'baseline' / 'launches' / str(lid)
                 inputs, actual_after = load_values(folder, 'before'), load_values(folder, 'after')
-                points = copy.deepcopy(contract['points'])
+                # Access operands already have a validated logical-range report.
+                # Adding an access point must not require inventing a numerical
+                # reference for metadata or changing the user's value provider.
+                points = copy.deepcopy([p for p in contract['points'] if p.get('mode', 'value') == 'value'])
                 for p in points:
                     p.update(launch=lid, compile=contract['compile'])
                 bundle = provider(tuple(copy.deepcopy(inputs)), points)
@@ -153,6 +154,8 @@ def analyze(capture, reference, output):
         complete = run['status'] == 'passed' and set(run['configured_points']) <= set(run['launched_points'])
         summary.update(status='completed', run_id=run['run_id'], coverage=run['coverage'], capture_complete=complete,
                        matched=complete and all(r['arguments_outputs_matched'] and all(p['matched'] for p in r['comparisons']) for r in results), launches=results)
+        if any(p.get('mode') == 'access' for c in contracts for p in c['points']):
+            summary['source_access'] = read(capture / 'access-summary.json')
         save(output / 'evidence.json', evidence)
         (output / 'elements.jsonl').write_text(''.join(json.dumps(r, allow_nan=False) + '\n' for r in rows))
         lines = ['# Unified capture analysis', '', f"Matched: {summary['matched']}; capture complete: {complete}.", '',
@@ -160,6 +163,8 @@ def analyze(capture, reference, output):
         for launch in results:
             for p in launch['comparisons']:
                 lines.append(f"| {launch['launch']} | {p['point']} | {p['observed_records']} | {len(p['missing_keys'])} | {p['mismatches']} |")
+        if 'source_access' in summary:
+            lines += ['', 'Source access operands were checked for capture integrity and logical bounds separately. Numerical reference matching does not prove index correctness. See access-report.md and accesses.jsonl in the capture.']
         (output / 'report.md').write_text('\n'.join(lines) + '\n')
         save(output / 'analysis.json', summary)
         return summary

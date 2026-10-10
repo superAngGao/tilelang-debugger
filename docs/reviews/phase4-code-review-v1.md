@@ -1,5 +1,7 @@
 # 第四步独立代码审阅 v1
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：FAIL（针对下列受审快照）。** 普通访问插桩的基本路径合理，但 host 门禁存在已复现的错误接受，racecheck 验证器会拒绝真实干净日志，TMA 区域解释尚未落地。
 
 日期：2026-10-09，Asia/Shanghai。对照已通过的方案第 12/13 节，阅读 `access*.py`、pins、例子配置、capture helper refactor 和 CLI。本轮没有修改实现、没有运行 GPU；在远端固定 TileLang Python 环境仅加载已有 IR，运行 CPU/TIR 验证器负例。

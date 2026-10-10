@@ -15,4 +15,4 @@ tilelang-debugger = "tilelang_debugger.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tilelang_debugger = ["contracts.json", "access-pins.json"]
+tilelang_debugger = ["contracts.json"]

@@ -70,6 +70,24 @@ class UnifiedTests(unittest.TestCase):
         self.assertEqual(p['scopes'][0]['step'], '1')
         self.assertIn('num_stages=', inject(source, [p]))
 
+    def test_bound_loop_dimensions_are_not_renamed(self):
+        source = SOURCE.replace('T.serial(2, 8, step=2)', 'T.serial(n, stop=m, step=2)')
+        p = prepare(source, configuration(source))[0]
+        text = inject(source, [p])
+        self.assertIn('_reference(n)', text)
+        self.assertIn('_reference(m)', text)
+        self.assertEqual([a['expression'] for a in p['scopes'][0]['arguments']], ['n', 'm', '2'])
+        self.assertIn(p['scopes'][0]['arguments'][0]['binding'], p['scopes'][0]['ordinal'])
+
+    def test_mixed_loop_arguments_keep_evaluation_order(self):
+        source = SOURCE.replace('T.serial(2, 8, step=2)', 'T.serial(n, stop=advance(), step=step())')
+        points = prepare(source, configuration(source))
+        text = inject(source, points)
+        self.assertLess(text.index('_reference(n)'), text.index('_reference(advance())'))
+        self.assertLess(text.index('_reference(advance())'), text.index('_reference(step())'))
+        self.assertEqual(text.count('advance()'), 1)
+        self.assertEqual(text.count('step()'), 1)
+
     def test_manual_pipeline_diagnostic(self):
         source = SOURCE.replace('T.serial(2, 8, step=2)', 'T.Pipelined(8, order=[0], stage=[0])')
         with self.assertRaisesRegex(Unsupported, 'manual Pipelined'):

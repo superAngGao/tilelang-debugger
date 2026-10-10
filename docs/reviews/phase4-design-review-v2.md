@@ -1,5 +1,7 @@
 # 第四步设计独立复审 v2
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS（设计通过；B1、B2 均关闭）。** 可按方案进入 4A 实验及后续实施。本结论不是新插桩路径的编译或 GPU 验收结果。
 
 - 日期：2026-10-09，Asia/Shanghai。

@@ -52,10 +52,10 @@ def printf_capacity():
     return size.value
 
 
-def configure_runtime(folder):
+def configure_runtime(folder, *, strict=True):
     import torch
     import tilelang
-    if tilelang.__version__ != "0.1.12" or "H200" not in torch.cuda.get_device_name(0):
+    if strict and (tilelang.__version__ != "0.1.12" or "H200" not in torch.cuda.get_device_name(0)):
         raise RuntimeError("this release is validated only for TileLang 0.1.12 / NVIDIA H200")
     torch.manual_seed(1234)
     torch.cuda.manual_seed_all(1234)
@@ -63,16 +63,17 @@ def configure_runtime(folder):
     torch.cuda.init()
     torch.empty(1, device="cuda")  # Make PyTorch's primary context current on this host thread.
     fifo = printf_capacity()
-    print_mod = importlib.import_module("tilelang.language.print_op")
+    # Resolve the public callable: newer releases use backend-specific modules.
+    print_mod = importlib.import_module(tilelang.language.print.__module__)
     helper_hash = digest(Path(print_mod.__file__).read_bytes())
-    if helper_hash != "55d1d925f24f2f0567744191d1af1089da74dea70d62fb32fd52d37bd6800f5b":
+    if strict and helper_hash != "55d1d925f24f2f0567744191d1af1089da74dea70d62fb32fd52d37bd6800f5b":
         raise RuntimeError("unvalidated TileLang print helper revision")
     from tilelang.env import TILELANG_TEMPLATE_PATH
     headers = {"reduce.h": "d47d59137eb03b8f5076ec28e9767fd70885b354330badfd0e40bd4ff98c39bf",
                "intrin.h": "88a8b7ec73c833f94bde974932a515b715138ed155c9702b2d2cb3c02b1203ec",
                "barrier.h": "ec5df8a0cb627fdd169256e11bc0b7429d70f97d0859b8f6e11a0b5a6a54bf09"}
     actual_headers = {name: digest((Path(TILELANG_TEMPLATE_PATH) / "tl_templates" / "cuda" / name).read_bytes()) for name in headers}
-    if actual_headers != headers:
+    if strict and actual_headers != headers:
         raise RuntimeError("unvalidated synchronization/reduction helper revision")
     nvcc = Path(os.environ.get("CUDA_HOME", "/usr/local/cuda")) / "bin" / "nvcc"
     nvcc_version = subprocess.run([str(nvcc), "--version"], capture_output=True, text=True, check=True).stdout.strip()

@@ -1,5 +1,7 @@
 # 第四步独立最终验收复核
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS。当前固定四例与五条验收路径的交付要求已满足，无剩余阻塞。**
 
 日期：2026-10-09，Asia/Shanghai。本次复核由独立 reviewer 完成，只读源码和本地/远端产物，独立运行 CPU/TIR 测试及证据重算，没有编译或启动 GPU，没有修改产品代码。产品 `access*.py` 与 `access-pins.json` 的摘要仍与 [代码复审 v2](phase4-code-review-v2.md) 一致。

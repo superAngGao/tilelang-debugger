@@ -1,5 +1,7 @@
 # 源码打印引擎验证记录
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 日期：2026-10-09。设计复审 v3、代码复审 v2 通过后执行本轮验收。数值采集直接在源码插入已有 Python 打印/同步宏；没有新增 lowering pass、layout 查询、寄存器映射或 device IR 插桩。device IR/CUDA 仅导出。
 
 ## 实际采集矩阵

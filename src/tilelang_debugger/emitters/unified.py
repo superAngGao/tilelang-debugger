@@ -4,6 +4,7 @@ import math
 
 from .. import capture_state as state
 from ..protocols.dtypes import UNIFIED_WIDTH
+from ..runtime.parameters import expression
 
 LOOPS = {'serial', 'unroll', 'parallel', 'pipeline', 'while'}
 MAX_COUNTER = 2**64 - 1
@@ -73,9 +74,9 @@ def start(pid):
     grid = [frame.get_block_extent(i) for i in range(len(frame.get_block_bindings()))]
     grid += [1] * (3 - len(grid))
     thread = frontend_thread(p['thread'], extents)
-    if any(b >= e for b, e in zip(p['block'], grid)):
+    if any(b >= int(e) for b, e in zip(p['block'], grid) if type(e) is int or type(e).__name__ == 'IntImm'):
         raise ValueError('block/thread selection outside launch')
-    p.update(root_built=True, thread=thread, thread_space='frontend', thread_extents=extents, threads=math.prod(extents), grid=grid,
+    p.update(root_built=True, thread=thread, thread_space='frontend', thread_extents=extents, threads=math.prod(extents), grid=[x if type(x) is int else expression(x) for x in grid],
              scope='inactive', dtype=None, shape=[], elements=0, indices=[], bound=False)
     if sum(q.get('threads', 0) for q in state._active.values()) > p['budget']:
         raise ValueError('budget cannot fit all end packets')
@@ -149,11 +150,11 @@ def observe(value, pid, counter, coords, ordinals):
     if p['bound']:
         raise ValueError('point constructed more than once in one kernel')
     if isinstance(value, tirx.Buffer):
-        scope, shape = value.scope(), [int(x) for x in value.shape]
+        scope, shape = value.scope(), [int(x) if type(x).__name__ == 'IntImm' else x for x in value.shape]
         if scope not in {'local', 'local.var', 'local.fragment', 'shared', 'shared.dyn', 'global'}:
             raise ValueError(f'unsupported memory scope: {scope}')
-        if not shape or any(x <= 0 for x in shape):
-            raise ValueError('observation requires positive static buffer shape')
+        if not shape or any(x <= 0 for x in shape if type(x) is int):
+            raise ValueError('observation requires positive buffer shape')
     elif isinstance(value, tirx.PrimExpr):
         scope, shape = 'scalar', []
         if p.get('region') is not None:
@@ -163,7 +164,11 @@ def observe(value, pid, counter, coords, ordinals):
     dtype = str(value.dtype)
     if dtype not in UNIFIED_WIDTH:
         raise ValueError(f'unsupported dtype: {dtype}')
-    indices = region_indices(shape, p.get('region'))
+    dynamic = any(type(x) is not int for x in shape)
+    if dynamic and p.get('region') is not None:
+        region_indices([r[1] for r in p['region']], p['region'])
+    indices = None if dynamic else region_indices(shape, p.get('region'))
+    elements = math.prod(len(range(*r)) for r in p['region']) if dynamic and p.get('region') is not None else math.prod(shape) if dynamic else len(indices)
     _, _, _, tid, block = geometry()
     selector = selected_block(p, block)
     if p['thread'] is not None:
@@ -211,11 +216,12 @@ def observe(value, pid, counter, coords, ordinals):
     point_count = len(state._active)
     allowance = p['budget'] // point_count - p['threads']
     emitters = 1 if collective or p['thread'] is not None else p['threads']
-    capacity = allowance // (emitters * len(indices))
-    if capacity < 1:
+    capacity = allowance // (emitters * elements)
+    if type(capacity) is int and capacity < 1:
         raise ValueError('budget cannot fit end packets and one complete observation')
-    p.update(bound=True, scope=scope, dtype=dtype, shape=shape, indices=indices, elements=len(indices),
-             capacity=capacity, reader=reader, participants=participants, barrier=barrier)
+    p.update(bound=True, scope=scope, dtype=dtype, shape=[x if type(x) is int else expression(x) for x in shape], indices=indices, elements=elements if type(elements) is int else None,
+             capacity=capacity if type(capacity) is int else None, reader=reader, participants=participants, barrier=barrier,
+             allowance=allowance, emitters=emitters)
     state._buffers[pid] = value
 
     def data(actual, index):
@@ -224,7 +230,7 @@ def observe(value, pid, counter, coords, ordinals):
 
     def buffer_data(buffer, position):
         region = p.get('region') or [[0, x, 1] for x in shape]
-        sizes = [len(range(*r)) for r in region]
+        sizes = [(r[1] - r[0] + r[2] - 1) // r[2] for r in region]
         selected = index_to_coordinates(position, sizes)
         actual = [r[0] + v * r[2] for v, r in zip(selected, region)]
         index = sum(v * math.prod(shape[i + 1:]) for i, v in enumerate(actual))
@@ -235,7 +241,7 @@ def observe(value, pid, counter, coords, ordinals):
         if selector:
             if counter[0] < T.uint64(MAX_COUNTER):
                 if counter[0] < capacity:
-                    for position in T.serial(len(indices)):
+                    for position in T.serial(elements):
                         buffer_data(buffer, position)
                     counter[1] = counter[1] + T.uint64(1)
                 counter[0] = counter[0] + T.uint64(1)

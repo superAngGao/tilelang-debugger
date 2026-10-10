@@ -1,5 +1,7 @@
 # 第四步验收记录
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 日期：2026-10-09。环境沿用第三步的 TileLang 0.1.12 固定 checkout、H200、PyTorch 2.10.0+cu129、NVCC 13.2.78 和 Compute Sanitizer 2026.1.1.0。
 
 设计与代码独立审阅均已通过；以下分别记录实际验收和实验失败。

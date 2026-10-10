@@ -1,5 +1,7 @@
 # 统一源码采集验证
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 2026-10-09，起点 `11cbc13`。最终安装包已通过独立设计、代码、runtime 与完整验收审阅，结论 **PASS**，适用范围与边界见下文。
 
 ## 实现与审阅
@@ -57,7 +59,7 @@ core/advanced 分别运行 racecheck 与 synccheck；TileOPs 运行 racecheck；
 先在准备好 GPU 依赖的环境中将 wheel 安装到独立目录；设 `PYTHONPATH` 为该目录。以下命令从包含 examples/tests 的仓库根执行，输出目录须不存在：
 
 ```bash
-python tests/run_cpu.py --output artifacts/cpu --access-fixture /path/to/verified/gqa-trace
+python tests/run_cpu.py --output artifacts/cpu
 python tests/validate_unified.py --output artifacts/core --sanitizer racecheck
 python tests/validate_unified.py --output artifacts/core-sync --sanitizer synccheck
 python tests/validate_unified_advanced.py --output artifacts/advanced --sanitizer racecheck

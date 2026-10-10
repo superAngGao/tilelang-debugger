@@ -1,5 +1,7 @@
 # 源码数值引擎：独立验收审阅
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS，本轮源码数值采集目标完成，无剩余验收阻塞项。** Softmax/RMSNorm 已通过真实包/JIT 接入取得中间值，RoPE 已取得只读输入。通用 trace、RoPE 中间 scalar 和任意异步 kernel 不属于本次完成范围。
 
 - 日期：2026-10-09。

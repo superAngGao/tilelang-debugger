@@ -1,5 +1,7 @@
 # 用户 kernel 数值采集 v2：独立设计审阅
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：FAIL，仅有两个源码支持域规则需补齐。复用现有 Python 打印宏的方向可实施；不再要求已撤销的 layout、lowered buffer remap 或 late IR erasure。**
 
 - 日期：2026-10-09。

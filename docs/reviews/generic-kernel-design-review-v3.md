@@ -1,5 +1,7 @@
 # 用户 kernel 数值采集：独立设计复审 v3
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS，无剩余设计阻塞项，可以实施源码打印宏方案。** v2 初审 FAIL 保留；本报告关闭其两个阻塞项，不恢复已撤销的寄存器直读/lowering 分析路线。
 
 - 日期：2026-10-09。

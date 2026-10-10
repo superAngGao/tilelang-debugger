@@ -1,5 +1,7 @@
 ﻿# 用户 kernel 数值采集：源码插桩修改方案 v2
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 本版替代 v1 寄存器直读方案。按用户纠正，本轮不设计、不挂钩、不解析 lowering pass；不读取 layout_map，不追踪 lowered buffer 身份，不插晚期 IR 日志。设备 IR/CUDA 仅原样导出供查看。既有 trace 保持原实现，不纳入本轮通用化，也不作为 run 的依赖。
 
 ## 已确认问题

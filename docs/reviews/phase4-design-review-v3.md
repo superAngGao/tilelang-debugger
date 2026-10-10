@@ -1,5 +1,7 @@
 # 第四步设计独立复审 v3
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 **结论：PASS（设计通过，无阻塞项）。** 第 13 节可替代 v2 的 FFI hook 路径进入实施；它提供的是受审 host IR 与真实 launch 绑定支持的构造证据，不是 descriptor 内容或构造返回值的运行时直接观测。
 
 - 日期：2026-10-09，Asia/Shanghai。

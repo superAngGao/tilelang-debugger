@@ -1,5 +1,7 @@
 # 第四步设计独立审阅 v1
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 结论：**FAIL（方案需小范围补全后复审）**。pipeline 末端追加日志的方向具有可实施性；阻塞在源码关联/覆盖契约和 TMA 证据链尚未具体化。不是要求实现通用 kernel 追踪架构，也不是因为尚未完成 4A 实验而判失败。
 
 - 审阅日期：2026-10-09，Asia/Shanghai。

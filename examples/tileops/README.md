@@ -46,7 +46,7 @@ python tests/validate_tileops.py --tileops /path/to/TileOPs \
 | `rms_norm/` | N=256、257；FP16/BF16/FP32 | sumsq、rrms、输出 fragment、weight 广播访问 |
 | `rope/` | 32×64、16×128；FP16/BF16/FP32 | x/cos/sin/配对元素读取、y 写入；原 kernel 无 fragment |
 
-例子中的 `monitor.json` / `access.json` 是**测试观察点意图**，不是直接传给 CLI 的配置。`capture.py` 按 factory、Python 分支及 AST 语句生成实际 `source/points` 配置；工具本身只使用用户行号，不按例子匹配。歧义或源码语句变化需更新 fixture 锚点；空行不影响定位。循环次数从 1 起。`access.json` 仍只是外部访问观察计划。
+例子中的 `monitor.json` / `access.json` 是**测试观察点意图**，不是直接传给 CLI 的配置。`capture.py` 按 factory、Python 分支及 AST 语句生成实际 `source/points` 配置；工具本身只使用用户行号，不按例子匹配。歧义或源码语句变化需更新 fixture 锚点；空行不影响定位。循环次数从 1 起。`access.json` 仅保存上游源码位置意图，也供基线与数值观察点定位复用，不是已移除的旧 trace 配置或可执行访问采集入口。
 
 ## 历史基线与 reviewed 入口探测
 

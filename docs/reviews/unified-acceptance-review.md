@@ -1,5 +1,7 @@
 # Unified installed-wheel independent acceptance
 
+> 历史记录：旧 `trace` 已从当前产品移除；文中 trace 命令、专用测试和兼容性描述仅适用于[移除前提交](https://github.com/superAngGao/tilelang-debugger/tree/e838fc88d96a562ee6230ee154d6593bac6632f8)。保留当时结果，不代表当前产品能力。
+
 2026-10-09. Reviewer: `/root/unified_acceptance_review`.
 
 Status: **PASS** for the final installed wheel and documented supported scope.
