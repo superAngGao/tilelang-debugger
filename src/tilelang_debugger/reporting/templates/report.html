@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TileLang 调试报告</title><style>/*STYLE*/</style></head>
+<body>
+<header><div><span class="eyebrow">TILELANG DEBUGGER · OFFLINE REPORT</span><h1>源码观察与调试报告</h1><p id="run-label"></p></div><button id="overview-button">运行总览</button></header>
+<section id="overview" aria-label="运行总览"></section>
+<div class="toolbar"><label>Launch <select id="launch-filter"></select></label><label>观察点 <input id="point-search" placeholder="名称、行号或对象"></label><span id="point-count"></span></div>
+<main><nav id="point-list" aria-label="源码观察点"></nav><section id="workspace">
+<div id="point-heading"></div><div class="panes"><section class="source-panel"><h3>源码位置</h3><p id="source-path" class="muted"></p><div id="source" tabindex="0"></div></section>
+<section class="detail-panel"><div class="tabs" role="tablist"><button data-tab="values">数值</button><button data-tab="accesses">访问</button><button data-tab="compiler">IR / CUDA</button><button data-tab="context">上下文</button></div>
+<div id="filters"></div><div id="detail"></div></section></div></section></main>
+<footer>观察范围以实际采集配置为准。源码顺序不是执行时间线；逻辑访问不是物理地址或访存完成证据。完整原始产物位于 evidence/。</footer>
+<script type="application/json" id="report-data">/*DATA*/</script><script>/*SCRIPT*/</script>
+</body></html>

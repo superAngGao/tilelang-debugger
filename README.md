@@ -17,6 +17,7 @@
 | 完整性 | 独立线程域与结束计数，检查整线程、整次访问、元素缺失、重复、截断和溢出 |
 | 数值分析 | 按 launch 对齐中间样本、调用后的参数和返回值；整数精确比较，不转浮点 |
 | 访问观察 | 元素读写、`T.copy`、单元素 atomic add/min/max 和取址的运行时逻辑参数；与数值点共用采集协议 |
+| 离线报告 | 单文件 HTML：源码定位、数值/误差矩阵、访问参数、执行筛选、两版 IR/CUDA 和协议要求覆盖 |
 
 以上是功能范围；具体已测组合见[验证记录](docs/unified-capture-validation.md)。测试不能证明任意程序的同步或线程分工正确。
 
@@ -146,6 +147,31 @@ python -m tilelang_debugger analyze artifacts/my-capture \
 
 产物包括 `analysis.json`、`report.md`、逐元素 `elements.jsonl`、reference 副本和 `evidence.json`。全部匹配退出 0，数值不同或 partial 分析退出 2，证据/interface 异常退出 1。reference 是用户授权执行的 Python 代码，不自动生成，也不是沙箱。
 
+## 生成离线报告
+
+```bash
+python -m tilelang_debugger report artifacts/my-capture \
+  --analysis artifacts/my-analysis --output artifacts/my-report
+```
+
+直接用浏览器打开 `artifacts/my-report/report.html`。不需要服务器、网络、GPU、PyTorch 或 TileLang；报告生成也不会执行 reference。省略 `--analysis` 仍能查看采集值、NaN/Inf、访问参数和编译产物，数值比较明确显示“未提供”。当前读取 schema 3 采集结果。
+
+左侧选择观察点，中间定位原始源码，右侧切换数值、访问、IR/CUDA 和上下文。可按 launch、block、前端线程、多层循环坐标/迭代序号和 visit 筛选。矩阵中未采集的元素显示为空缺；原值、reference、绝对/相对误差及 raw bits 保留在明细中。baseline 与 instrumented 编译产物分开查看。
+
+```text
+my-report/
+  report.html                 # 自包含交互页面，可单独打开
+  report.json                 # 可供程序读取的报告模型
+  manifest.json               # 文件 SHA256 清单
+  evidence/
+    capture/                  # 完整原始采集证据副本
+    analysis/                 # 可选的 reference 分析副本
+```
+
+分享完整目录可保留证据和下载链接；只分享 HTML 可浏览内嵌内容。输出目录必须是与输入目录分离的新目录，防止覆盖证据。报告先复核采集证据和 reference 分析关联；损坏证据会报错。`report` 成功只表示报告生成成功，采集是否完整、数值是否匹配由页面分别展示。
+
+总览列出技术开发协议要求对应的本次证据与边界。NaN/Inf 是已观察位置的分布，不自动证明产生源或传播链。直接 scalar cast 可以用同一行前后的操作数观察点配对；除法、sqrt/rsqrt 需要显式采集语句前的对应 scalar 操作数，缺少时显示“未采集”。`--near-zero 1e-8` 可调整近零除数阈值。这些检查提供定位线索，不自动生成 reference 或推导任意数据依赖。设计、目录职责及验证命令见[报告方案](docs/report-plan.md)和[验证记录](docs/report-validation.md)。
+
 ## 示例与验证
 
 [统一小测例](examples/unified/README.md) 覆盖嵌套循环/分支、线程、内存、dtype、参数和运行身份。[TileOPs 示例](examples/tileops/README.md) 直接使用固定上游 checkout 中的 pool、indices、RoPE、Softmax、RMS kernel，产品不按这些名字分支。
@@ -184,7 +210,7 @@ IR／CUDA 导出继续保留，供用户查阅；它不代表自动分析编译�
 - 协作 ready/uniform、组内 barrier 保留是用户契约；不自动证明异步完成、任意分支一致性或跨 block 快照。
 - schema 3 可绑定输入 tensor 的符号形状／stride，支持非连续与零 stride 视图、按前端参数名传入的关键字参数，以及调用方当前 stream。launch 之间仍同步采集，不支持 CUDA Graph 或跨 stream 并发时序分析。零维 tensor 的快照可用，但当前 TileLang 基线无法编译零维 tensor 参数，未宣称 kernel 支持。
 - 动态参数表达式保留整数除法、余数、Cast 和位宽语义；不解任意符号方程，除零及 signed 溢出明确报错。baseline 必须成功执行，失败 kernel 的部分日志恢复仍待实现。
-- 打印、shared 中转和同步会影响调度与性能；采集结果不代表原程序性能。FP8、自动根因诊断和交互式报告尚未提供。
+- 打印、shared 中转和同步会影响调度与性能；采集结果不代表原程序性能。FP8 和自动根因诊断尚未提供。首版交互式报告只汇总已有 schema 3 证据，不恢复失败 kernel 的部分日志。
 
 ## 文件组织
 
@@ -197,6 +223,10 @@ src/tilelang_debugger/
   protocols/             CPU 解码、身份和完整性检查
   runtime/               临时 hook、build/compile/launch、快照与证据
   unified_analysis.py    多 launch 的用户 reference 对齐
+  diagnostics/           数值统计、显式转换与敏感操作检查
+  reporting/             证据加载、报告模型、构建和离线 HTML 渲染
+    templates/           页面骨架
+    assets/              样式、源码/数值/访问/编译产物视图
 examples/                原四例、TileOPs 接入、统一机制小测例
 tests/                   CPU/TIR 测试和 H200 验收脚本
 experiments/             隔离机制实验

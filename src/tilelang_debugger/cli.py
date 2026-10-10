@@ -18,6 +18,11 @@ def main():
     analyze.add_argument("capture")
     analyze.add_argument("--reference", required=True)
     analyze.add_argument("--output", required=True)
+    report = commands.add_parser('report', help='Generate an offline HTML report from a schema 3 capture')
+    report.add_argument('capture')
+    report.add_argument('--analysis', help='Optional saved reference analysis directory')
+    report.add_argument('--output', required=True)
+    report.add_argument('--near-zero', type=float, default=1e-8, help='Sensitive-operation denominator threshold')
     worker = commands.add_parser("_worker", help=argparse.SUPPRESS)
     worker.add_argument("folder")
     source_worker = commands.add_parser("_source_worker", help=argparse.SUPPRESS)
@@ -44,6 +49,11 @@ def main():
         print(json.dumps(dict(status=result["status"], matched=result["matched"], output=args.output)))
         if not result["matched"]:
             raise SystemExit(2)
+        return
+    if args.command == 'report':
+        from .reporting.render import generate
+        result = generate(args.capture, args.output, args.analysis, args.near_zero)
+        print(json.dumps(result))
         return
     from . import capture
     if args.command == "_worker":

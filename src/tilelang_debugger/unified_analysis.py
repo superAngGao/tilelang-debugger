@@ -67,6 +67,7 @@ def compare_samples(records, point, spec):
         failed += int(k in expected and not matched)
         rows.append(dict(record, actual=json_number(actual), expected=json_number(reference), matched=matched, abs_error=json_number(error)))
     return dict(point=point['id'], matched=not failed, mismatches=failed, expected_keys=len(expected), observed_records=len(records),
+                dtype=dtype, atol=atol, rtol=rtol,
                 missing_keys=[repr(k) for k in sorted(missing)], unexpected_keys=[repr(k) for k in sorted(unexpected)]), rows
 
 

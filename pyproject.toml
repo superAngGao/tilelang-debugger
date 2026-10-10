@@ -16,3 +16,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 tilelang_debugger = ["contracts.json"]
+"tilelang_debugger.reporting" = ["templates/*.html", "assets/*.css", "assets/*.js"]
